@@ -1,0 +1,112 @@
+# Moving Villa Limón to Godot (plan, not done)
+
+This document describes how the current code base would move to Godot 4. Nothing here has been implemented.
+The refactor made it possible: the rules live in `src/core` and `src/application` with no engine, browser or
+DOM dependencies, and every front-end concern sits behind a small adapter.
+
+## 1. Port almost directly (GDScript or C#)
+
+These modules are plain data and functions. Port them one by one and run the same scenarios against them.
+
+| Web module | Godot target | Notes |
+| --- | --- | --- |
+| `core/config/catalog.js`, `goals.js`, `world.js` | `Resource` files (`.tres`) or one `catalog.json` loaded at start | Keep the type ids (`fr_trad`, `cafe`, …) exactly. |
+| `core/domain/state.js` | A `GameState` class or `Dictionary` | Same fields as `serializeGame()`. |
+| `core/domain/grid.js` | Static functions on a `Grid` script | `PackedInt32Array` for the tile grid. |
+| `core/simulation/*.js` | One script per system, same names | Each takes inputs and returns a `Dictionary`; keep them pure. |
+| `core/goals/goals.js` | `Goals` script | Metrics are a name → `Callable` table. |
+| `core/commands/commands.js` | `Commands` script | Same command names and rejection reasons. |
+| `core/persistence/save.js` | `SaveFormat` script | Same JSON; keep the migration chain. |
+| `core/util/random.js` | Port `nextRandom` exactly (32-bit integer math with masks) | Same seed → same building seeds. |
+| `application/game.js` | An autoload singleton `Game` (Node) | Owns the state, the event queue and the clock accumulator. |
+
+How to check the port:
+
+- Export `tests/fixtures/scenario.mjs` to JSON and replay it in a Godot test (GUT or a headless script).
+- Compare every checkpoint with `tests/fixtures/characterization.golden.json`. JavaScript numbers are
+  64-bit floats; use `float` (64-bit in GDScript) and the same operation order to match within 1e-9.
+- Port the unit tests in `tests/` the same way; they are short and use only the public core API.
+
+Watch for: `Math.round` (JS rounds .5 up; use `floor(x + 0.5)`), integer division, and `Array.sort` stability
+(JS sort is stable; Godot's `sort_custom` is not guaranteed stable, so add the id as a tie-breaker, which most comparators here already do).
+
+## 2. Replace the web adapters
+
+| Web adapter | Godot replacement |
+| --- | --- |
+| `platform/web/storage.js` + `savegame.js` | `FileAccess` in `user://villa-limon.json` (same JSON document). |
+| `platform/web/audio.js` (Web Audio synth) | `AudioStreamPlayer` nodes with short samples, or `AudioStreamGenerator` for the same synth. |
+| `platform/web/input.js` | `_unhandled_input` plus Input Map actions (`pan`, `zoom`, `rotate_view`, `rotate_building`, `cancel`, `pause`, `speed_1..3`, `demolish`). |
+| `platform/web/main.js` frame loop | `_process(delta)` on the `Game` autoload: `game.step(min(delta, 0.05))`. |
+| `ui/dom/*` | `Control` scenes: HUD, catalogue (`ItemList`/`GridContainer`), selection panel, city panel, goals, hints, settings. |
+| `ui/dom/i18n.js` | `TranslationServer` with a `.csv` or `.po` per language, same keys. |
+| `ui/interaction.js` | A `ToolController` node: same states and the same calls to `Game.dispatch`. |
+
+## 3. Commands and events → calls and signals
+
+- Commands stay calls: `Game.dispatch({ "type": "PlaceBuilding", "buildingType": "fr_trad", "x": 8, "y": 14, "r": 0, "autoFace": true })`
+  returns `{ ok, reason, events }`, exactly as in JavaScript.
+- Events become signals. After each `dispatch` and `step`, drain the queue and emit one signal per event:
+
+| Event | Signal | Typical listeners |
+| --- | --- | --- |
+| `building_placed` | `building_placed(id, type, x, y, r, seed)` | World (spawn scene), audio |
+| `building_moved` / `building_rotated` | `building_moved(id, …)` / `building_rotated(id, r)` | World |
+| `building_removed` | `building_removed(id, type, x, y, refund)` | World, HUD floater, audio |
+| `coins_changed`, `population_changed` | same names | HUD |
+| `income_earned` | `income_earned(id, amount)` | Floating labels |
+| `goal_completed`, `types_unlocked` | same names | Goals panel, catalogue, audio, confetti |
+| `clock_changed`, `day_changed`, `tick` | same names | HUD, light cycle |
+| `command_rejected` | `command_rejected(command, reason)` | Tooltip, toasts |
+| `state_replaced` | `state_replaced()` | World rebuild |
+
+Keep the payloads as plain values; never pass nodes through the rules.
+
+## 4. Building ids → scenes and resources
+
+- A `BuildingCatalog` resource maps each type id to a `PackedScene`, e.g. `fr_trad → res://buildings/fr_trad.tscn`,
+  plus its thumbnail texture. The rules never see it.
+- Visual variants: keep `variantOf(type, seed) = seed % VARIANTS[type]` and give each scene a `variant` export
+  (colour sets, props). The seed is in the save, so a town looks the same after loading.
+- The world view keeps `Dictionary[int, Node3D]` from building id to instance, exactly like
+  `rendering/three/buildings.js` keeps `Map<id, Object3D>`.
+- Tile ↔ world: `world = Vector3(x - 12 + s/2, 0, y - 12 + s/2)`; rotation `r` is `r × 90°` around Y; the
+  model's front faces +Z.
+
+## 5. Saves
+
+The JSON document (`{ v: 3, game, ui }`) needs no change. Port `migrateSave` and `normalizeGame` and keep
+the version chain; add `4: …` the first time the format changes. Two options for players coming from the web:
+
+1. Import: a menu entry that reads a pasted or uploaded JSON save and runs the same migrations.
+2. Fresh start: if browser saves are not worth carrying over.
+
+The `ui` section (language, camera, tutorial flags) can map onto Godot `ConfigFile` settings or stay in the save.
+
+## 6. What has to be rebuilt in Godot
+
+These parts are Three.js-specific and are rebuilt, not ported:
+
+- **Models** (`rendering/three/models/*.js`): procedural code that assembles boxes, prisms, lathes and spheres.
+  Either re-model them in Blender from screenshots, or port the kit (`Kit` in `art.js`) to a `@tool` script that
+  builds `MeshInstance3D`s with `SurfaceTool`, then bake each to a `.tscn`. Variants become exported properties.
+- **Watercolour textures** (`art.js`, canvas 2D): paint them as image files, or generate them once with a
+  script and save as `.png`.
+- **Ink outlines**: `EdgesGeometry` lines become an inverted-hull outline material or a screen-space outline shader.
+- **Materials**: matte Lambert → `StandardMaterial3D` with roughness 1, no specular; window glow via emission
+  driven by the day cycle.
+- **Light cycle** (`scene.js` `applyDayLight`): the same keyframes on a `DirectionalLight3D` and `WorldEnvironment`,
+  with the paper tint as a `CanvasLayer` `ColorRect` in multiply mode.
+- **Paper ground and grain**: a textured plane with alpha fade and a full-screen grain overlay.
+- **Ambient life** (`ambient.js`): walkers as `MultiMeshInstance3D` following the café road network from the
+  derived snapshot (`roads.mainRoads`), smoke and dust with `GPUParticles3D`, petals as a particle system.
+- **Overlays**: grid, occupied tiles, footprint, range, relation arcs (`ImmediateMesh` or `Path3D`).
+- **Picking**: raycast from the `Camera3D` (orthographic, isometric) to the ground plane and to building colliders.
+- **Thumbnails**: a `SubViewport` render per type, or pre-rendered images.
+
+## Suggested order
+
+1. Port `core/` and `application/` and pass the characterization and unit tests headless.
+2. Build a grey-box world view: one coloured box per building id, roads as tiles, orthographic camera.
+3. Wire HUD, catalogue and tools to `Game.dispatch` and the signals; play a full session.
+4. Replace grey boxes with real scenes and the watercolour look, then ambient life, light cycle and audio.
