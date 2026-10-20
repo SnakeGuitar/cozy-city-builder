@@ -43,10 +43,11 @@ const interaction = createInteraction({ game, view, onChange: kind => ui && ui.o
 ui = createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave });
 const playing = () => simulationRunning(app.nav);
 const menu = createMenu({ settings, actions: {
-  continue: () => app.continueGame(), newGame: () => app.newGame('normal'), sandbox: () => app.openSandbox(),
+  continue: () => app.continueGame(), newGame: () => app.setupNewGame('normal'), sandbox: () => (app.hasSave('sandbox') ? app.openSandbox() : app.setupNewGame('sandbox')),
+  startSetup: map => app.newGame(app.nav.setup?.mode || 'normal', { map }),
   settings: () => app.navigate({ type: 'open_settings' }), credits: () => app.navigate({ type: 'open_credits' }),
   back: () => app.navigate({ type: 'back' }), resume: () => app.navigate({ type: 'resume' }), mainMenu: () => app.toMainMenu(),
-  restartSandbox: () => app.navigate({ type: 'ask', confirm: { id: 'overwrite', mode: 'sandbox' } }),
+  restartSandbox: () => app.setupNewGame('sandbox'),
   confirmYes: () => app.confirm(true), confirmNo: () => app.confirm(false),
   language: l => { ui.applyLanguage(l); saveSettings(); renderMenu(); },
   sound: () => { audio.init(); settings.muted = !settings.muted; audio.setMuted(settings.muted); saveSettings(); renderMenu(); },
@@ -81,7 +82,7 @@ function frame(now) {
   app.frame(rdt);                                   // the world only moves on the 'playing' screen
   const events = app.drainEvents(), snap = game.getSnapshot();
   for (const e of events) {
-    if (e.type === 'session_started') { ui.setSlot(normalizeSlotUi(e.ui)); camera.restore(e.ui.camera ?? e.ui.cam); }
+    if (e.type === 'session_started') { ui.setSlot(normalizeSlotUi(e.ui)); camera.setMapSize(game.getSnapshot().state.map.size); camera.restore(e.ui.camera ?? e.ui.cam); }
     else if (e.type === 'nav_changed') { renderMenu(); if (e.nav.screen === 'main_menu') { interaction.setTool({ kind: 'select' }); interaction.select(0); } }
     else if (e.type === 'save_rejected' || (e.type === 'save_loaded' && e.warnings.length)) console.warn('save:', e);
   }

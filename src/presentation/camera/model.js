@@ -17,12 +17,15 @@ export const CAMERA = Object.freeze({
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const distanceFor = (mode, zoom) => mode === 'persp' ? CAMERA.viewHeight / (2 * Math.tan(CAMERA.fov / 2)) / zoom : CAMERA.isoDistance;
 
-export function createCameraState(mode = 'iso') {
-  return clampCamera({ target: { x: .5, z: .5 }, yaw: CAMERA.yaw, pitch: mode === 'persp' ? CAMERA.perspPitch : CAMERA.isoPitch, zoom: CAMERA.zoom, mode, distance: 0 });
+/** `bound`: how far the point of interest may go from the centre (half the map plus a margin); kept in the state, never saved. */
+export function createCameraState(mode = 'iso', bound = CAMERA.bound) {
+  return clampCamera({ target: { x: .5, z: .5 }, yaw: CAMERA.yaw, pitch: mode === 'persp' ? CAMERA.perspPitch : CAMERA.isoPitch, zoom: CAMERA.zoom, mode, distance: 0, bound });
 }
+/** The camera bound for a map of `size` cells. */
+export const boundFor = size => size / 2 + 2;
 export function clampCamera(c) {
-  const zoom = clamp(c.zoom, CAMERA.zoomMin, CAMERA.zoomMax), mode = c.mode === 'persp' ? 'persp' : 'iso';
-  return { target: { x: clamp(c.target.x, -CAMERA.bound, CAMERA.bound), z: clamp(c.target.z, -CAMERA.bound, CAMERA.bound) },
+  const zoom = clamp(c.zoom, CAMERA.zoomMin, CAMERA.zoomMax), mode = c.mode === 'persp' ? 'persp' : 'iso', B = c.bound ?? CAMERA.bound;
+  return { bound: B, target: { x: clamp(c.target.x, -B, B), z: clamp(c.target.z, -B, B) },
     yaw: c.yaw, pitch: clamp(c.pitch, CAMERA.pitchMin, CAMERA.pitchMax), zoom, mode, distance: distanceFor(mode, zoom) };
 }
 /** Drag by screen pixels: the ground under the cursor follows it (vertical drags are stretched by 1/sin(pitch)). */
@@ -43,7 +46,7 @@ export const tilt = (c, dir) => clampCamera({ ...c, pitch: c.pitch + dir * .05 }
 export const rotateStep = (c, dir) => clampCamera({ ...c, yaw: c.yaw + dir * CAMERA.stepYaw });
 export const focus = (c, x, z) => clampCamera({ ...c, target: { x, z } });
 /** Back to the default framing, keeping the projection mode. */
-export const resetCamera = c => createCameraState(c.mode);
+export const resetCamera = c => createCameraState(c.mode, c.bound);
 /** Isometric ⇄ perspective. Perspective starts a little lower so the 3D reads better. */
 export function toggleMode(c) {
   const mode = c.mode === 'iso' ? 'persp' : 'iso';
@@ -55,11 +58,11 @@ const TAU = Math.PI * 2;
 const normYaw = y => ((y % TAU) + TAU) % TAU;
 export const serializeCamera = c => ({ target: { x: c.target.x, z: c.target.z }, yaw: normYaw(c.yaw), pitch: c.pitch, zoom: c.zoom, mode: c.mode, distance: c.distance });
 /** Untrusted data → a valid camera state, or null. Accepts the v1–v3 `[x, z, yaw, zoom]` array too. */
-export function deserializeCamera(raw) {
+export function deserializeCamera(raw, bound = CAMERA.bound) {
   const ok = v => typeof v === 'number' && Number.isFinite(v);
-  if (Array.isArray(raw)) return raw.length >= 4 && raw.every(ok) ? clampCamera({ ...createCameraState('iso'), target: { x: raw[0], z: raw[1] }, yaw: normYaw(raw[2]), zoom: raw[3] }) : null;
+  if (Array.isArray(raw)) return raw.length >= 4 && raw.every(ok) ? clampCamera({ ...createCameraState('iso', bound), target: { x: raw[0], z: raw[1] }, yaw: normYaw(raw[2]), zoom: raw[3] }) : null;
   if (!raw || typeof raw !== 'object' || !raw.target || !ok(raw.target.x) || !ok(raw.target.z) || !ok(raw.yaw) || !ok(raw.pitch) || !ok(raw.zoom)) return null;
-  return clampCamera({ target: { x: raw.target.x, z: raw.target.z }, yaw: normYaw(raw.yaw), pitch: raw.pitch, zoom: raw.zoom, mode: raw.mode === 'persp' ? 'persp' : 'iso', distance: 0 });
+  return clampCamera({ target: { x: raw.target.x, z: raw.target.z }, yaw: normYaw(raw.yaw), pitch: raw.pitch, zoom: raw.zoom, mode: raw.mode === 'persp' ? 'persp' : 'iso', distance: 0, bound });
 }
 
 // ---------------------------------------------------------------- visual interpolation

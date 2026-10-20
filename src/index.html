@@ -282,6 +282,16 @@ body.in-menu #stage,body.in-menu #top,body.in-menu #catalog,body.in-menu #goals,
 .menu-h{font-family:var(--f-serif);font-size:26px;margin:0 0 14px;text-align:center;}
 .menu-list{display:flex;flex-direction:column;gap:8px;}
 .menu-list.row{flex-direction:row;}
+.menu-card.setup{width:min(760px,100%);max-height:calc(100vh - 40px);overflow:auto;}
+.biome-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:6px 0 14px;}
+.biome{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;border:1px solid var(--line);border-radius:14px;background:#fffaf0;padding:8px 10px;min-height:86px;}
+.biome b{font-size:13.5px;} .biome small{font-size:11.5px;color:var(--ink-soft);line-height:1.25;}
+.biome.on{border-color:var(--lime-deep);box-shadow:0 0 0 2px var(--lime-deep) inset;background:#f6f9ec;}
+.biome .sw{display:flex;gap:3px;} .biome .sw i{width:18px;height:10px;border-radius:4px;border:1px solid rgba(91,62,44,.2);}
+.setup-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;}
+.setup-row input{height:38px;border-radius:12px;border:1px solid var(--line-strong);background:#fffaf0;padding:0 12px;font:inherit;font-weight:800;width:150px;}
+.menu-btn.dice{flex:0 0 auto;min-height:38px;width:44px;padding:0;align-items:center;font-size:18px;}
+@media (max-width:640px){.biome-grid{grid-template-columns:repeat(2,1fr);}.biome{min-height:0;}.biome small{display:none;}}
 .menu-btn{min-height:48px;border-radius:14px;border:1px solid var(--line-strong);background:#fffaf0;font-weight:800;font-size:15px;text-align:left;padding:8px 16px;display:flex;flex-direction:column;justify-content:center;gap:1px;flex:1;transition:transform .12s,background .12s;}
 .menu-btn small{font-weight:600;font-size:11.5px;color:var(--ink-soft);}
 .menu-btn:hover{background:#fbf1d9;transform:translateX(2px);}

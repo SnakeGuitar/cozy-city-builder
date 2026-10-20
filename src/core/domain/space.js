@@ -10,6 +10,7 @@ import { DEFS, isRoadType } from '../config/catalog.js';
 import { GRID_SIZE } from '../config/world.js';
 import { createBuilding } from './state.js';
 import { roadHitsObb, onRoad } from './roads.js';
+import { terrainBlocker } from './terrain.js';
 import { makeObb, obbAabb, obbOverlap, obbCorners, normAngle, quarterToAngle, cosSin, lotDistance, pointInObb, QUARTER } from './geometry.js';
 
 export const CELL = 1;                       // one grid cell, in world units
@@ -81,7 +82,7 @@ export function overlapping(state, o, ignoreId = 0) {
 }
 /**
  * null when `type` fits at the pose; otherwise why not: 'outside' (off the map), 'blocked' (overlaps a building), 'road' (on a road),
- * or a terrain reason from `terrainCheck` (set by the terrain module). `ignoreId` is the building being moved.
+ * or a terrain reason: 'water', 'rock', 'slope' (domain/terrain.js). `ignoreId` is the building being moved.
  */
 export function canPlace(state, type, position, rotation, ignoreId = 0) {
   if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.z) || !Number.isFinite(rotation)) return 'outside';
@@ -89,10 +90,8 @@ export function canPlace(state, type, position, rotation, ignoreId = 0) {
   if (!insideMap(state, o)) return 'outside';
   if (overlapping(state, o, ignoreId).length) return 'blocked';
   if (!isRoadType(type) && roadHitsObb(state, o)) return 'road';
-  return placementHooks.terrain ? placementHooks.terrain(state, type, o) : null;
+  return terrainBlocker(state, o, { onWater: !!DEFS[type].onWater });
 }
-/** Extension points filled by other core modules (terrain), so this module stays small and free of cycles. */
-export const placementHooks = { terrain: null };
 
 /** The building whose footprint contains a ground point (topmost id first), or null. */
 export function buildingAtPoint(state, x, z) {

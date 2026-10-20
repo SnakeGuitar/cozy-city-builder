@@ -7,6 +7,7 @@ import { DEFS, LANDMARK, tierStats, maxTierOf } from '../config/catalog.js';
 import { NEW_GAME } from '../config/world.js';
 import { MODES } from '../config/rules.js';
 import { createRoads } from './roads.js';
+import { createMap } from './terrain.js';
 
 export function createEmptyState(overrides = {}) {
   return {
@@ -17,6 +18,7 @@ export function createEmptyState(overrides = {}) {
     tutorial: { step: 'done', signals: [] }, // core/tutorial: current step id and front-end signals seen
     buildings: {},                       // id -> building record
     roads: createRoads(),                // road graph: nodes and segments (domain/roads.js)
+    map: createMap(),                    // size, seed, generator version, biome preset and terrain (domain/terrain.js)
     spatial: {},                         // derived spatial hash (domain/space.js); never saved
     ...overrides,
   };
@@ -36,10 +38,13 @@ export const kindOf = b => DEFS[b.type].kind;
 export const defOf = b => DEFS[b.type];
 export const findLandmark = state => listBuildings(state).find(b => b.type === LANDMARK) || null;
 
-/** A new, completely empty game in the given mode. Nothing is pre-placed; the café comes first. */
-export function createNewGameState(mode = 'normal', firstStep = 'explore') {
+/**
+ * A new, completely empty game in the given mode. Nothing is pre-placed; the café comes first.
+ * map: { preset, seed, size } generates the terrain (see config/biomes.js); without it the map is the classic meadow.
+ */
+export function createNewGameState(mode = 'normal', firstStep = 'explore', map = null) {
   if (!MODES.includes(mode)) throw new Error(`unknown mode ${mode}`);
-  return createEmptyState({ mode, coins: NEW_GAME.coins, population: NEW_GAME.population, employed: NEW_GAME.employed, demand: { ...NEW_GAME.demand },
+  return createEmptyState({ mode, map: createMap(map || {}), coins: NEW_GAME.coins, population: NEW_GAME.population, employed: NEW_GAME.employed, demand: { ...NEW_GAME.demand },
     clock: { time: NEW_GAME.time, day: 1, speed: NEW_GAME.speed, paused: false }, rngSeed: NEW_GAME.rngSeed,
     tutorial: { step: mode === 'normal' ? firstStep : 'done', signals: [] } });
 }

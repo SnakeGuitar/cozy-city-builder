@@ -7,6 +7,7 @@
 import { DEFS, isRoadType } from '../config/catalog.js';
 import { mapHalf, queryArea, obbOf } from './space.js';
 import { segmentObbDistance } from './geometry.js';
+import { roadTerrainBlocker } from './terrain.js';
 import { roadsOf, curvePoints, polylineLength, closestOnPolyline, segmentPolyline, nearestRoadPoint, roadPiecesIn, nodeRadius,
   addNode, addSegment, splitSegment, SNAP_RADIUS, listSegments } from './roads.js';
 
@@ -57,7 +58,7 @@ function crossings(A, B) {
 /**
  * Plans a road. Pure. Returns { ok, reason?, style, width, length, cost, polyline, start, end, controlPoints, crossings }.
  * reasons: 'unknown' · 'tooShort' · 'outside' · 'blocked' (a building is in the way) · 'roadOverlap' (runs along another road)
- *          · 'sameNode' · terrain reasons from planHooks.terrain.
+ *          · 'sameNode' · terrain reasons ('water', 'rock', 'slope') from domain/terrain.js.
  */
 export function planRoad(state, { points, style, snap = true }) {
   if (!isRoadType(style)) return { ok: false, reason: 'unknown' };
@@ -103,11 +104,9 @@ export function checkCurve(state, polyline, width) {
     const b = state.buildings[id]; if (!b || isRoadType(b.type)) continue; const o = obbOf(b);
     for (let i = 1; i < polyline.length; i++) if (segmentObbDistance(o, polyline[i - 1], polyline[i]) < hw - 1e-6) return { reason: 'blocked', blocker: id };
   }
-  if (planHooks.terrain) { const why = planHooks.terrain(state, polyline, width); if (why) return { reason: why }; }
+  const ground = roadTerrainBlocker(state, polyline); if (ground) return { reason: ground };
   return null;
 }
-/** Extension point for terrain rules (slopes, water), set by the terrain module. */
-export const planHooks = { terrain: null };
 
 /** Builds a planned road (from planRoad on the same state). Returns { nodeIds, segmentIds } created. */
 export function applyRoad(state, plan) {

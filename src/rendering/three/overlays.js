@@ -12,10 +12,17 @@ import { footprintOf, lotAabb } from '../../core/domain/space.js';
 const N = GRID_SIZE;
 export const RELATION_COLOURS = { inc: '#b98a12', well: '#4f8a1e', svc: '#3f7a8c' };
 
-export function createOverlays(scene) {
-  const gridLines = (() => { const pts = []; for (let i = 0; i <= N; i++) pts.push(i - HALF, .04, -HALF, i - HALF, .04, HALF, -HALF, .04, i - HALF, HALF, .04, i - HALF);
+/** `ground(x, z)` is the terrain height (0 on flat maps): every marker sits on it. */
+export function createOverlays(scene, ground = () => 0) {
+  const gridMat = new THREE.LineBasicMaterial({ color: '#6a4631', transparent: true, opacity: .16 });
+  /** Grid lines over the whole map, draped on the ground in half-cell steps. */
+  function makeGrid(half) {
+    const pts = [], push = (x0, z0, x1, z1) => pts.push(x0, ground(x0, z0) + .04, z0, x1, ground(x1, z1) + .04, z1);
+    for (let i = -half; i <= half; i++) for (let t = -half; t < half; t += .5) { push(i, t, i, t + .5); push(t, i, t + .5, i); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    const l = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#6a4631', transparent: true, opacity: .16 })); l.visible = false; scene.add(l); return l; })();
+    const l = new THREE.LineSegments(g, gridMat); l.visible = false; scene.add(l); return l;
+  }
+  let gridLines = makeGrid(N / 2);
   // occupied ground: one rotated quad per building footprint (grows when the town does)
   const occGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), occMat = new THREE.MeshBasicMaterial({ color: '#c9584f', transparent: true, opacity: .16, depthWrite: false });
   let occ = new THREE.InstancedMesh(occGeo, occMat, 64); occ.count = 0; occ.visible = false; occ.renderOrder = 2; scene.add(occ);
@@ -43,14 +50,14 @@ export function createOverlays(scene) {
   function pieceMesh(state, piece, mat) {
     const r = roadsOf(state); let m = null;
     if (piece.segmentId && r.segments[piece.segmentId]) { const s = r.segments[piece.segmentId]; m = new THREE.Mesh(band(segmentPolyline(state, s), s.width / 2 + .05, .06), mat); }
-    else if (piece.nodeId && r.nodes[piece.nodeId]) { const n = r.nodes[piece.nodeId], w = n.width || nodeRadius(state, n.id) * 2; m = new THREE.Mesh(new THREE.PlaneGeometry(w + .1, w + .1).rotateX(-Math.PI / 2), mat); m.position.set(n.position.x, .06, n.position.z); }
+    else if (piece.nodeId && r.nodes[piece.nodeId]) { const n = r.nodes[piece.nodeId], w = n.width || nodeRadius(state, n.id) * 2; m = new THREE.Mesh(new THREE.PlaneGeometry(w + .1, w + .1).rotateX(-Math.PI / 2), mat); m.position.set(n.position.x, ground(n.position.x, n.position.z) + .06, n.position.z); }
     if (m) { m.renderOrder = 4; scene.add(m); } return m;
   }
   /** A flat band along a polyline (half width hw), y above the ground. */
   function band(pl, hw, y) {
     const pos = [], idx = [];
     pl.forEach((p, i) => { const a = pl[Math.max(0, i - 1)], b = pl[Math.min(pl.length - 1, i + 1)], L = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / L, nz = (b.x - a.x) / L;
-      pos.push(p.x + nx * hw, y, p.z + nz * hw, p.x - nx * hw, y, p.z - nz * hw); if (i) { const k = i * 2; idx.push(k - 2, k, k - 1, k - 1, k, k + 1); } });
+      pos.push(p.x + nx * hw, ground(p.x + nx * hw, p.z + nz * hw) + y, p.z + nz * hw, p.x - nx * hw, ground(p.x - nx * hw, p.z - nz * hw) + y, p.z - nz * hw); if (i) { const k = i * 2; idx.push(k - 2, k, k - 1, k - 1, k, k + 1); } });
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); return g;
   }
   const disposeGroup = o => { if (!o) return; scene.remove(o); o.traverse(c => { if (c.geometry) c.geometry.dispose(); }); };
@@ -60,7 +67,7 @@ export function createOverlays(scene) {
     roadPlan(p, ok) {
       disposeGroup(plan); disposeGroup(planBand); plan = planBand = null;
       if (!p || !p.polyline || p.polyline.length < 2) return;
-      plan = roadPlanPreview(p); plan.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .7; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); } if (c.isLineSegments) c.material = ghostEdge; });
+      plan = roadPlanPreview(p, ground); plan.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .7; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); } if (c.isLineSegments) c.material = ghostEdge; });
       bandMat.color.set(ok ? '#5f9a2c' : '#c8553f');
       planBand = new THREE.Mesh(band(p.polyline, p.width / 2 + .08, .015), bandMat); planBand.renderOrder = 3;
       scene.add(planBand); scene.add(plan);
@@ -77,34 +84,36 @@ export function createOverlays(scene) {
     roadHandles(points, active = -1) {
       disposeGroup(handles); handles = null; if (!points) return;
       handles = new THREE.Group();
-      points.forEach((p, i) => { const h = new THREE.Mesh(handleGeo, i === active ? handleOn : handleMat); h.position.set(p.x, .15, p.z); h.renderOrder = 12; const ring = new THREE.Mesh(ringGeo, ringMat); ring.position.set(p.x, .15, p.z); ring.renderOrder = 11; handles.add(h, ring); });
+      points.forEach((p, i) => { const h = new THREE.Mesh(handleGeo, i === active ? handleOn : handleMat); const y = ground(p.x, p.z) + .15; h.position.set(p.x, y, p.z); h.renderOrder = 12; const ring = new THREE.Mesh(ringGeo, ringMat); ring.position.set(p.x, y, p.z); ring.renderOrder = 11; handles.add(h, ring); });
       scene.add(handles);
     },
     setBuildMode(on) { gridLines.visible = occ.visible = on; },
+    /** A map was loaded: grid lines for its size and ground. */
+    setMap(state) { const vis = gridLines.visible; scene.remove(gridLines); gridLines.geometry.dispose(); gridLines = makeGrid((state.map?.size || N) / 2); gridLines.visible = vis; },
     /** Occupied ground from the buildings' footprints (rotated as placed). */
     refreshOccupancy(state) {
       const list = Object.values(state.buildings);
       if (list.length > occ.instanceMatrix.count) { const vis = occ.visible; scene.remove(occ); occ.dispose(); occ = new THREE.InstancedMesh(occGeo, occMat, Math.max(64, list.length * 2)); occ.visible = vis; occ.renderOrder = 2; scene.add(occ); }
       const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-      list.forEach((b, i) => { const f = footprintOf(b.type); q.setFromAxisAngle(up, b.rotation); m.compose(new THREE.Vector3(b.position.x, .05, b.position.z), q, new THREE.Vector3(f.width * .94, 1, f.depth * .94)); occ.setMatrixAt(i, m); });
+      list.forEach((b, i) => { const f = footprintOf(b.type); q.setFromAxisAngle(up, b.rotation); m.compose(new THREE.Vector3(b.position.x, ground(b.position.x, b.position.z) + .05, b.position.z), q, new THREE.Vector3(f.width * .94, 1, f.depth * .94)); occ.setMatrixAt(i, m); });
       occ.count = list.length; occ.instanceMatrix.needsUpdate = true;
     },
     /** The footprint of `type` at a pose, green when it fits. */
-    footprint(type, position, rotation, ok) { const f = footprintOf(type); foot.visible = true; foot.position.set(position.x, .05, position.z); foot.rotation.y = rotation; foot.scale.set(f.width, 1, f.depth); markMat.color.set(ok ? '#5f9a2c' : '#c8553f'); },
+    footprint(type, position, rotation, ok) { const f = footprintOf(type); foot.visible = true; foot.position.set(position.x, ground(position.x, position.z) + .05, position.z); foot.rotation.y = rotation; foot.scale.set(f.width, 1, f.depth); markMat.color.set(ok ? '#5f9a2c' : '#c8553f'); },
     hideFootprint() { foot.visible = false; },
     /** Largest effect or service radius of a type around a pose (`r` overrides the radius, e.g. a tier's). */
     range(type, position, rotation, r) {
       const d = DEFS[type]; r = r || d.r || (d.fx ? Math.max(...d.fx.map(f => f.r)) : 0);
       if (!r) { range.visible = false; return; }
       const a = lotAabb({ type, position, rotation }), w = a.maxX - a.minX, dd = a.maxZ - a.minZ;
-      range.position.set((a.minX + a.maxX) / 2, .045, (a.minZ + a.maxZ) / 2); range.scale.set(w + 2 * r, 1, dd + 2 * r); range.visible = true;
+      range.position.set((a.minX + a.maxX) / 2, ground(position.x, position.z) + .045, (a.minZ + a.maxZ) / 2); range.scale.set(w + 2 * r, 1, dd + 2 * r); range.visible = true;
     },
     hideRange() { range.visible = false; },
     ghost(type, variant, position, rotation, ok, time, tier = 1) {
       const key = type + ':' + variant + ':' + tier;
       if (ghostKey !== key) { if (ghost) scene.remove(ghost); ghost = ghostOf(type, variant, tier); ghostKey = key; scene.add(ghost); }
       ghost.visible = true;
-      ghost.position.set(position.x, ok ? .06 + Math.sin(time * 3.3) * .015 : .02, position.z); ghost.rotation.y = rotation;
+      ghost.position.set(position.x, ground(position.x, position.z) + (ok ? .06 + Math.sin(time * 3.3) * .015 : .02), position.z); ghost.rotation.y = rotation;
     },
     hideGhost() { if (ghost) ghost.visible = false; },
     clearGhost() { if (ghost) scene.remove(ghost); ghost = null; ghostKey = ''; },

@@ -19,7 +19,9 @@ export function createCameraController({ smooth = true, onMoved = () => {} } = {
     reset: () => set(C.resetCamera(desired)),
     toggleMode: () => set(C.toggleMode(desired)),
     /** Restore a saved camera (or the default) and jump there without easing. */
-    restore(raw) { desired = C.deserializeCamera(raw) || C.createCameraState('iso'); visual = C.visualFrom(desired); },
+    restore(raw) { const bound = desired.bound; desired = C.deserializeCamera(raw, bound) || C.createCameraState('iso', bound); visual = C.visualFrom(desired); },
+    /** A map of `size` cells was loaded: the camera may roam over it. */
+    setMapSize(size) { const bound = C.boundFor(size); desired = C.clampCamera({ ...desired, bound }); visual = { ...visual, bound }; },
     serialize: () => C.serializeCamera(desired),
     update(dt) { visual = C.interpolate(visual, desired, dt, this.smooth); return visual; },
   };

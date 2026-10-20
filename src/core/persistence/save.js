@@ -10,6 +10,9 @@
 //   v7 — roads are a graph (game.roads: nodes, segments with control points, width and style). Road cells that
 //        were stored as buildings become nodes at their cell centres joined to their four neighbours, as the grid
 //        street tool builds them; each keeps its style, width and price. Building ids do not change.
+//   v8 — game.map = { size, seed, generatorVersion, biomePreset, terrain }: generated terrain is stored with the game
+//        (heights and cell data), so a map never changes when the generator does. Older towns get the classic
+//        meadow: 24 × 24, flat, preset 'classic', terrain null — exactly the ground they were built on.
 //
 // Repair policy: saves up to v3 always had a café, so one without it is damaged and the café is restored.
 // From v4 an empty map (no café yet) is a normal new game and is never "repaired".
@@ -21,9 +24,11 @@ import { TUTORIAL_STEPS } from '../tutorial/tutorial.js';
 import { canPlace, insertBuilding, tileToPose, reindex } from '../domain/space.js';
 import { normAngle, quarterToAngle } from '../domain/geometry.js';
 import { createRoads, tilesToGraph, serializeRoads, normalizeRoads } from '../domain/roads.js';
+import { createMap } from '../domain/terrain.js';
+import { MAP_PRESETS, MAP_SIZES, GENERATOR_VERSION, CLASSIC_PRESET, BIOME_IDS, MAP_MARGIN } from '../config/biomes.js';
 import { createEmptyState, listBuildings } from '../domain/state.js';
 import { clamp } from '../util/math.js';
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 const LEGACY_MAP = 24; // every map before v6 was 24 × 24 cells
 // v1 (Strawberry Borough) building ids → current ids
 export const LEGACY_TYPES = Object.freeze({ houseA: 'fr_trad', houseB: 'fr_trad', houseC: 'fr_cont' });
@@ -36,11 +41,34 @@ export function serializeGame(state) {
     coins: state.coins, population: state.population, employed: state.employed, demand: { ...state.demand },
     clock: { time: state.clock.time, day: state.clock.day, speed: state.clock.speed }, goalsDone: [...state.goalsDone],
     nextId: state.nextId, rngSeed: state.rngSeed,
+    map: serializeMap(state),
     roads: serializeRoads(state),
     buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, position: { x: b.position.x, z: b.position.z }, rotation: b.rotation, seed: b.seed, well: b.well, open: b.open })),
   };
 }
 export { serializeRoads, normalizeRoads };
+export function serializeMap(state) {
+  const m = state.map || createMap(), T = m.terrain;
+  return { size: m.size, seed: m.seed, generatorVersion: m.generatorVersion, biomePreset: m.biomePreset,
+    terrain: T ? { n: T.n, origin: T.origin, margin: T.margin, waterLevel: T.waterLevel, heights: [...T.heights], cells: { ...T.cells } } : null };
+}
+/**
+ * Validates an untrusted map. Stored terrain is kept when it is well formed; a generated map without terrain is
+ * regenerated from its seed when this generator version can; anything else falls back to the classic meadow.
+ */
+export function normalizeMap(raw, warn = () => {}) {
+  const m = raw && typeof raw === 'object' ? raw : null;
+  if (!m || m.biomePreset === CLASSIC_PRESET || m.biomePreset === undefined) return createMap();
+  if (!MAP_PRESETS.includes(m.biomePreset) || !MAP_SIZES.includes(m.size) || !Number.isInteger(m.seed) || m.seed < 0) { warn('map: unknown preset, size or seed, using the classic meadow'); return createMap(); }
+  const T = m.terrain, n = m.size + 2 * MAP_MARGIN + 1, cells = (n - 1) * (n - 1);
+  const ok = T && T.n === n && T.origin === -(m.size / 2 + MAP_MARGIN) && Array.isArray(T.heights) && T.heights.length === n * n && T.heights.every(h => Number.isInteger(h) && Math.abs(h) < 1e6)
+    && T.cells && ['biome', 'flags', 'moisture', 'temperature', 'waterDist'].every(k => typeof T.cells[k] === 'string' && T.cells[k].length === cells)
+    && /^[0-3]*$/.test(T.cells.flags) && [...T.cells.biome].every(c => BIOME_IDS[c.charCodeAt(0) - 97]);
+  if (ok) return { size: m.size, seed: m.seed, generatorVersion: Number.isInteger(m.generatorVersion) ? m.generatorVersion : GENERATOR_VERSION, biomePreset: m.biomePreset,
+    terrain: { n, origin: T.origin, margin: MAP_MARGIN, waterLevel: Number.isFinite(T.waterLevel) ? T.waterLevel : 0, heights: [...T.heights], cells: { ...T.cells } } };
+  if (m.generatorVersion === GENERATOR_VERSION) { warn('map: terrain data damaged, regenerated from its seed'); return { ...createMap({ size: m.size, seed: m.seed, preset: m.biomePreset }) }; }
+  warn('map: terrain data unreadable, using the classic meadow'); return createMap();
+}
 export const createSaveDocument = (state, ui = {}) => ({ v: SAVE_VERSION, mode: state.mode, game: serializeGame(state), ui });
 
 // ---------------------------------------------------------------- migrations: each takes version n and returns n+1
@@ -69,6 +97,10 @@ const MIGRATIONS = {
     if (!d.game || typeof d.game !== 'object') throw new Error('v4 save without game data');
     const list = Array.isArray(d.game.buildings) ? d.game.buildings : [];
     return { ...d, v: 5, game: { ...d.game, buildings: list.map(b => (b && typeof b === 'object' ? { ...b, tier: 1 } : b)) } };
+  },
+  7: d => {
+    if (!d.game || typeof d.game !== 'object') throw new Error('v7 save without game data');
+    return { ...d, v: 8, game: { ...d.game, map: serializeMap({ map: createMap() }) } }; // the ground every older town stood on
   },
   6: d => {
     if (!d.game || typeof d.game !== 'object') throw new Error('v6 save without game data');
@@ -117,7 +149,7 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
   const dem = g.demand && typeof g.demand === 'object' ? g.demand : {};
   const tut = g.tutorial && typeof g.tutorial === 'object' ? g.tutorial : {};
   const state = createEmptyState({
-    mode: MODES.includes(g.mode) ? g.mode : 'normal',
+    mode: MODES.includes(g.mode) ? g.mode : 'normal', map: normalizeMap(g.map, warn),
     tutorial: { step: TUTORIAL_STEPS.some(x => x.id === tut.step) ? tut.step : 'done', signals: (Array.isArray(tut.signals) ? tut.signals : []).filter(x => typeof x === 'string' && /^[a-z_]{1,32}$/.test(x)).slice(0, 16) },
     coins: num(g.coins, 0, 0), population: num(g.population, 0, 0, 10000), employed: num(g.employed, 0, 0, 10000),
     demand: { r: num(dem.r, 0, -100, 100), c: num(dem.c, 0, -100, 100), i: num(dem.i, 0, -100, 100) },

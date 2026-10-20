@@ -36,15 +36,17 @@ export function createApp({ storage, getSlotUi = () => ({}) }) {
     hasSave: m => readSlot(m) !== null,
     /** Continue the last normal game. */
     continueGame() { const s = readSlot('normal'); if (!s) return false; begin('normal', s.state, 'load', s.ui); queue.push({ type: 'save_loaded', mode: 'normal', from: s.from, warnings: s.warnings }); return true; },
-    /** New empty game; asks first if it would overwrite a save of that mode (unless confirmed). */
-    newGame(m = 'normal', { confirmed = false } = {}) {
-      if (!confirmed && app.hasSave(m)) { setNav({ type: 'ask', confirm: { id: 'overwrite', mode: m } }); return false; }
-      begin(m, newGameState(m), 'new'); return true;
+    /** New empty game on a map ({ preset, seed, size }); asks first if it would overwrite a save of that mode (unless confirmed). */
+    newGame(m = 'normal', { confirmed = false, map = null } = {}) {
+      if (!confirmed && app.hasSave(m)) { setNav({ type: 'ask', confirm: { id: 'overwrite', mode: m, map } }); return false; }
+      begin(m, newGameState(m, map), 'new'); return true;
     },
+    /** Opens the new-map screen (biome, seed, size) for a mode. */
+    setupNewGame(m = 'normal') { setNav({ type: 'open_setup', mode: m }); },
     /** Sandbox: open the sandbox save, or start an empty one. */
     openSandbox() { const s = readSlot('sandbox'); if (s) { begin('sandbox', s.state, 'load', s.ui); return true; } return app.newGame('sandbox'); },
     /** Answer the open confirmation dialog. */
-    confirm(yes) { const c = nav.confirm; setNav({ type: 'cancel_confirm' }); if (yes && c?.id === 'overwrite') return app.newGame(c.mode, { confirmed: true }); return false; },
+    confirm(yes) { const c = nav.confirm; setNav({ type: 'cancel_confirm' }); if (yes && c?.id === 'overwrite') return app.newGame(c.mode, { confirmed: true, map: c.map }); return false; },
     /** Save the session and go back to the main menu (no reload). */
     toMainMenu() { save(); setNav({ type: 'to_main_menu' }); },
     save,

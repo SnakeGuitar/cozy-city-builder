@@ -18,9 +18,11 @@ export function createScene(container) {
   Object.assign(sun.shadow.camera, { left: -17, right: 17, top: 17, bottom: -17, near: 1, far: 90 });
   sun.shadow.bias = -.0005; sun.shadow.normalBias = .02; sun.shadow.radius = 3;
   scene.add(sun, sun.target);
-  const decoTrees = buildGround(scene);
+  const { ground, trees: decoTrees } = buildGround(scene);
   return {
     renderer, scene, sun, hemi, decoTrees,
+    /** The painted meadow and its ring of trees: the ground of the classic map (hidden on generated maps). */
+    classicGround: [ground, ...decoTrees],
     resize(w, h) { renderer.setSize(w, h, false); },
     render(camera) { renderer.render(scene, camera); },
   };
@@ -55,7 +57,7 @@ function buildGround(scene) {
     if (p.position.length() > HALF * 1.75) continue;
     scene.add(p); trees.push(p);
   }
-  return trees;
+  return { ground: g, trees };
 }
 
 // ---------------------------------------------------------------- day cycle: light keyframes over the day fraction

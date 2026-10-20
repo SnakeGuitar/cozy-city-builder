@@ -17,6 +17,10 @@ export function createAmbient(scene, focus, groundAt = () => 0) {
   const walkers = [], puffs = [], walkerModel = createWalkers(Math.random);
   const petals = new THREE.InstancedMesh(new THREE.PlaneGeometry(.06, .04), new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), PETALS);
   const pState = [], pcol = [C.white, '#fff4dc', C.leafL, C.leaf, C.lemon, C.lime].map(c => new THREE.Color(c));
+  // what drifts through the air: petals (default), snowflakes or autumn leaves
+  const WEATHER = { petals: { cols: pcol, drift: .35, fall: .12 }, snow: { cols: ['#ffffff', '#f4f8ff', '#e8f0fb'].map(c => new THREE.Color(c)), drift: .08, fall: .22 },
+    leaves: { cols: ['#d9823f', '#c4553a', '#e7b04b', '#b8672e'].map(c => new THREE.Color(c)), drift: .3, fall: .16 } };
+  let weather = WEATHER.petals;
   for (let i = 0; i < PETALS; i++) { pState.push({ p: new THREE.Vector3((Math.random() - .5) * 26, Math.random() * 4, (Math.random() - .5) * 26), r: new THREE.Euler(Math.random() * 6, Math.random() * 6, 0), sp: .5 + Math.random(), ph: Math.random() * 6 }); petals.setColorAt(i, pcol[i % pcol.length]); }
   scene.add(petals);
   const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _one = new THREE.Vector3(1, 1, 1);
@@ -44,13 +48,15 @@ export function createAmbient(scene, focus, groundAt = () => 0) {
   }
   function updatePetals(dt, time) {
     for (let i = 0; i < PETALS; i++) { const s = pState[i];
-      s.p.x += (.35 + Math.sin(time * .3 + s.ph) * .2) * dt * s.sp; s.p.z += .15 * dt * s.sp; s.p.y -= .12 * dt * s.sp; s.p.y += Math.sin(time * 2 + s.ph) * .004;
+      s.p.x += (weather.drift + Math.sin(time * .3 + s.ph) * .2) * dt * s.sp; s.p.z += .15 * dt * s.sp; s.p.y -= weather.fall * dt * s.sp; s.p.y += Math.sin(time * 2 + s.ph) * .004;
       s.r.x += dt * 2 * s.sp; s.r.y += dt * 1.3;
       const lx = s.p.x - focus.x, lz = s.p.z - focus.z;
-      if (s.p.y < 0 || lx > 14 || lz > 14) s.p.set(focus.x - 13 + Math.random() * 10, 2 + Math.random() * 3, focus.z + (Math.random() - .5) * 26);
+      if (s.p.y < groundAt(s.p.x, s.p.z) || lx > 14 || lz > 14) s.p.set(focus.x - 13 + Math.random() * 10, 2 + Math.random() * 3, focus.z + (Math.random() - .5) * 26);
       _q.setFromEuler(s.r); _m4.compose(s.p, _q, _one); petals.setMatrixAt(i, _m4);
     }
     petals.instanceMatrix.needsUpdate = true;
   }
-  return { puff, dust, confetti, update(rdt, sdt, clock, population, roads, state) { updateWalkers(sdt, population, roads, state); updatePuffs(rdt); updatePetals(rdt, clock); } };
+  /** 'petals' · 'snow' · 'leaves' — recolours what drifts through the air. */
+  function setWeather(kind) { weather = WEATHER[kind] || WEATHER.petals; for (let i = 0; i < PETALS; i++) petals.setColorAt(i, weather.cols[i % weather.cols.length]); petals.instanceColor.needsUpdate = true; }
+  return { puff, dust, confetti, setWeather, update(rdt, sdt, clock, population, roads, state) { updateWalkers(sdt, population, roads, state); updatePuffs(rdt); updatePetals(rdt, clock); } };
 }

@@ -11,7 +11,8 @@ import { advanceTutorial, tutorialMessage, needsRoad } from '../core/tutorial/tu
 import { adviseNow } from '../core/mascot/advisor.js';
 import { serializeGame } from '../core/persistence/save.js';
 
-export const newGameState = (mode = 'normal') => createNewGameState(mode);
+/** A new empty game; `map` = { preset, seed, size } generates its terrain (classic meadow without it). */
+export const newGameState = (mode = 'normal', map = null) => createNewGameState(mode, 'explore', map);
 const NO_ROAD_REMINDER = 15; // simulated seconds between "this needs a road" reminders after placing
 const UNDO_LIMIT = 50;      // road operations kept for undo
 

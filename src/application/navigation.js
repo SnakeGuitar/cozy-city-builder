@@ -1,10 +1,10 @@
 // Navigation between screens as a pure reducer. The simulation only runs on the 'playing' screen;
 // nothing else in the code base checks which menu is open.
-export const SCREENS = Object.freeze(['main_menu', 'playing', 'paused', 'settings', 'credits']);
+export const SCREENS = Object.freeze(['main_menu', 'playing', 'paused', 'settings', 'credits', 'setup']);
 export const createNavigation = () => ({ screen: 'main_menu', back: null, confirm: null });
 
 /**
- * actions: start · pause · resume · open_settings · open_credits · back · to_main_menu
+ * actions: start · pause · resume · open_settings · open_credits · open_setup { mode } · back · to_main_menu
  *          ask { confirm: { id, ...data } } · cancel_confirm
  */
 export function navigate(nav, action) {
@@ -15,9 +15,11 @@ export function navigate(nav, action) {
     case 'resume': return nav.screen === 'paused' ? to('playing') : nav;
     case 'open_settings': return ['main_menu', 'paused', 'playing'].includes(nav.screen) ? to('settings', { back: nav.screen === 'playing' ? 'paused' : nav.screen }) : nav;
     case 'open_credits': return nav.screen === 'main_menu' ? to('credits', { back: 'main_menu' }) : nav;
+    // the new-map screen (biome, seed, size), from the main menu or (to restart a sandbox) from the pause menu
+    case 'open_setup': return ['main_menu', 'paused'].includes(nav.screen) ? to('setup', { back: nav.screen, setup: { mode: action.mode || 'normal' } }) : nav;
     case 'back':
       if (nav.confirm) return { ...nav, confirm: null };
-      if (nav.screen === 'settings' || nav.screen === 'credits') return to(nav.back || 'main_menu', { back: null });
+      if (nav.screen === 'settings' || nav.screen === 'credits' || nav.screen === 'setup') return to(nav.back || 'main_menu', { back: null });
       if (nav.screen === 'paused') return to('playing');
       return nav;
     case 'to_main_menu': return to('main_menu', { back: null });
