@@ -11,6 +11,8 @@ const out = await build({
   entryPoints: [root + 'src/platform/web/main.js'], bundle: true, format: 'esm', target: 'es2020', minify: true, write: false,
   legalComments: 'none',
 });
+// a warning (e.g. importing a name a module does not export) would be a broken page in the browser: fail instead
+if (out.warnings.length) throw new Error('esbuild warnings:\n' + out.warnings.map(w => `${w.location?.file}:${w.location?.line} ${w.text}`).join('\n'));
 const js = out.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 const page = fs.readFileSync(root + 'src/index.html', 'utf8');
 const marker = /<!-- build:main -->[\s\S]*?<!-- \/build:main -->/;

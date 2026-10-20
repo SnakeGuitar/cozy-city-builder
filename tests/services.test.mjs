@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeState, centre, derive } from './helpers.mjs';
+import { makeState, centre, derive, cellOf } from './helpers.mjs';
 
 // a street of identical homes south of the main road, a clinic (cap 50, range 7) at the west end
 function town(population, extra = []) {
@@ -11,8 +11,8 @@ function town(population, extra = []) {
 test('coverage needs range: homes beyond the radius are not served', () => {
   const s = town(30, [['clinic', 5, 13]]);
   const d = derive(s), clinic = Object.values(d.byId).find(b => b.type === 'clinic');
-  for (const id of clinic.served) assert.ok(s.buildings[id].x - 5 <= 7);
-  const far = Object.values(d.byId).find(b => b.kind === 'house' && s.buildings[b.id].x === 17);
+  for (const id of clinic.served) assert.ok(cellOf(s, s.buildings[id]).x - 5 <= 7);
+  const far = Object.values(d.byId).find(b => b.kind === 'house' && cellOf(s, s.buildings[b.id]).x === 17);
   assert.equal(far.svc.health, 0);
 });
 
@@ -22,7 +22,7 @@ test('capacity limits attendance even inside the radius', () => {
   // unstaffed clinic works at half capacity: 50 × 0.5 = 25
   assert.equal(clinic.capEff, 25);
   assert.ok(clinic.load <= clinic.capEff + 1e-9);
-  const inRange = Object.values(d.byId).filter(b => b.kind === 'house' && b.occ > 0 && s.buildings[b.id].x - 5 <= 7);
+  const inRange = Object.values(d.byId).filter(b => b.kind === 'house' && b.occ > 0 && cellOf(s, s.buildings[b.id]).x - 5 <= 7);
   assert.ok(inRange.some(h => h.svc.health < 1), 'some homes in range get nothing: saturated');
   assert.equal(d.city.svc.health.got, clinic.load);
 });

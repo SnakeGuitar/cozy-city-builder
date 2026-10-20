@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CMD } from '../src/core/index.js';
-import { makeState, centre, derive, place, createGame } from './helpers.mjs';
+import { makeState, centre, derive, place, createGame, idAtCell } from './helpers.mjs';
 
 test('buildings are connected only through roads that reach the café', () => {
   const s = makeState([...centre(), ['fr_trad', 8, 14], ['fr_trad', 20, 20], ['road', 20, 19]]);
@@ -16,7 +16,7 @@ test('removing a road disconnects, rebuilding it reconnects', () => {
   const game = createGame({ state: makeState([...centre(), ['fr_trad', 16, 14]], { goalsDone: [] }) });
   const house = () => Object.values(game.getSnapshot().derived.byId).find(b => b.type === 'fr_trad');
   assert.equal(house().conn, true);
-  const roadId = game.getSnapshot().state.grid[13 * 24 + 12];
+  const roadId = idAtCell(game.getSnapshot().state, 12, 13);
   assert.ok(game.dispatch({ type: CMD.Demolish, id: roadId }).ok);
   assert.equal(house().conn, false, 'gap at x = 12 cuts the house off');
   assert.ok(place(game, 'road', 12, 13).ok);

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeState, centre, derive } from './helpers.mjs';
+import { makeState, centre, derive, idAtCell } from './helpers.mjs';
 
-const homeAt = (d, s, x, y) => d.byId[s.grid[y * 24 + x]];
+const homeAt = (d, s, x, y) => d.byId[idAtCell(s, x, y)];
 
 test('wellbeing effects respect radius', () => {
   // flowerbed: +5 within 1 tile

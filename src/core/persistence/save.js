@@ -4,6 +4,9 @@
 //   v3 — { v, game, ui }: `game` is everything the rules need, `ui` is presentation prefs kept opaque here.
 //   v4 — { v, mode, game, ui }: explicit mode ('normal' | 'sandbox'), tutorial progress, starter goals g0/g0b.
 //   v5 — every building records its tier (1–3); older buildings become tier 1.
+//   v6 — continuous coordinates: buildings store position { x, z } (world units, map centred on the origin) and
+//        rotation (radians) instead of grid cell x, y and quarter turn r. The migration reproduces each building's
+//        drawn position exactly: x = cell x − 12 + s / 2, z = cell y − 12 + s / 2, rotation = r · π/2 (24-cell maps).
 //
 // Repair policy: saves up to v3 always had a café, so one without it is damaged and the café is restored.
 // From v4 an empty map (no café yet) is a normal new game and is never "repaired".
@@ -12,10 +15,12 @@ import { GOALS } from '../config/goals.js';
 import { SPEEDS } from '../config/world.js';
 import { MODES } from '../config/rules.js';
 import { TUTORIAL_STEPS } from '../tutorial/tutorial.js';
-import { canPlace, insertBuilding } from '../domain/grid.js';
+import { canPlace, insertBuilding, tileToPose, reindex } from '../domain/space.js';
+import { normAngle, quarterToAngle } from '../domain/geometry.js';
 import { createEmptyState, listBuildings } from '../domain/state.js';
 import { clamp } from '../util/math.js';
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
+const LEGACY_MAP = 24; // every map before v6 was 24 × 24 cells
 // v1 (Strawberry Borough) building ids → current ids
 export const LEGACY_TYPES = Object.freeze({ houseA: 'fr_trad', houseB: 'fr_trad', houseC: 'fr_cont' });
 const LANDMARK_SPOTS = [[10, 11], [2, 2], [20, 2]];
@@ -27,7 +32,7 @@ export function serializeGame(state) {
     coins: state.coins, population: state.population, employed: state.employed, demand: { ...state.demand },
     clock: { time: state.clock.time, day: state.clock.day, speed: state.clock.speed }, goalsDone: [...state.goalsDone],
     nextId: state.nextId, rngSeed: state.rngSeed,
-    buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, x: b.x, y: b.y, r: b.r, seed: b.seed, well: b.well, open: b.open })),
+    buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, position: { x: b.position.x, z: b.position.z }, rotation: b.rotation, seed: b.seed, well: b.well, open: b.open })),
   };
 }
 export const createSaveDocument = (state, ui = {}) => ({ v: SAVE_VERSION, mode: state.mode, game: serializeGame(state), ui });
@@ -59,7 +64,20 @@ const MIGRATIONS = {
     const list = Array.isArray(d.game.buildings) ? d.game.buildings : [];
     return { ...d, v: 5, game: { ...d.game, buildings: list.map(b => (b && typeof b === 'object' ? { ...b, tier: 1 } : b)) } };
   },
+  5: d => {
+    if (!d.game || typeof d.game !== 'object') throw new Error('v5 save without game data');
+    const list = Array.isArray(d.game.buildings) ? d.game.buildings : [];
+    return { ...d, v: 6, game: { ...d.game, buildings: list.map(b => (b && typeof b === 'object' ? legacyToPose(b) : b)) } };
+  },
 };
+
+/** A building stored by grid cell (x, y, r) → the same building by world pose. Entries it cannot read pass through for validation. */
+function legacyToPose(b) {
+  const { x, y, r, ...rest } = b, type = LEGACY_TYPES[b.type] || b.type;
+  if (!DEFS[type] || !Number.isInteger(x) || !Number.isInteger(y)) return b;
+  const q = Number.isInteger(r) && r >= 0 && r < 4 ? r : 0, s = DEFS[type].s;
+  return { ...rest, position: { x: x - LEGACY_MAP / 2 + s / 2, z: y - LEGACY_MAP / 2 + s / 2 }, rotation: Number.isInteger(r) && r >= 0 && r < 4 ? quarterToAngle(q) : undefined };
+}
 
 /** Brings any known save document to the current version. Throws on unknown or malformed documents. */
 export function migrateSave(doc) {
@@ -98,28 +116,30 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     if (!raw || typeof raw !== 'object') { warn('building entry is not an object'); continue; }
     const type = LEGACY_TYPES[raw.type] || raw.type;
     if (!DEFS[type]) { warn(`unknown building type ${raw.type}`); continue; }
-    if (!Number.isInteger(raw.x) || !Number.isInteger(raw.y)) { warn(`${type}: bad coordinates`); continue; }
-    const r = Number.isInteger(raw.r) && raw.r >= 0 && raw.r < 4 ? raw.r : (warn(`${type}: rotation ${raw.r} reset to 0`), 0);
+    const src = raw.position === undefined && raw.x !== undefined ? legacyToPose({ ...raw, type }) : raw; // defensive: grid fields in a v6 document
+    const pos = src.position;
+    if (!pos || typeof pos !== 'object' || !Number.isFinite(pos.x) || !Number.isFinite(pos.z)) { warn(`${type}: bad coordinates`); continue; }
+    const rotation = Number.isFinite(src.rotation) ? normAngle(src.rotation) : (warn(`${type}: rotation ${src.rotation} reset to 0`), 0);
     const seed = int(raw.seed, 0, 0, 0xffffffff);
     let id = int(raw.id, 0, 0);
     if (!id || usedIds.has(id)) { if (raw.id !== undefined) warn(`${type}: duplicate or invalid id ${raw.id}`); id = 0; }
     if (id) usedIds.add(id);
     const top = maxTierOf(type), tier = raw.tier === undefined ? 1 : Number.isInteger(raw.tier) && raw.tier >= 1 && raw.tier <= top ? raw.tier : (warn(`${type}: tier ${raw.tier} reset to ${clamp(int(raw.tier, 1), 1, top)}`), clamp(int(raw.tier, 1), 1, top));
-    pending.push({ type, tier, x: raw.x, y: raw.y, r, seed, id, well: num(raw.well, 50, 0, 100), open: typeof raw.open === 'boolean' ? raw.open : true });
+    pending.push({ type, tier, position: { x: pos.x, z: pos.z }, rotation, seed, id, well: num(raw.well, 50, 0, 100), open: typeof raw.open === 'boolean' ? raw.open : true });
   }
   state.nextId = Math.max(int(g.nextId, 1, 1), ...[...usedIds].map(i => i + 1), 1);
   for (const p of pending) {
-    const why = canPlace(state, p.type, p.x, p.y);
-    if (why) { warn(`${p.type} at ${p.x},${p.y}: ${why}`); if (p.id) usedIds.delete(p.id); continue; }
+    const why = canPlace(state, p.type, p.position, p.rotation);
+    if (why) { warn(`${p.type} at ${p.position.x},${p.position.z}: ${why}`); if (p.id) usedIds.delete(p.id); continue; }
     if (p.type === LANDMARK && Object.values(state.buildings).some(b => b.type === LANDMARK)) { warn('second café dropped'); continue; }
-    const b = insertBuilding(state, p.type, p.x, p.y, p.r, p.seed, p.id || state.nextId, p.tier);
+    const b = insertBuilding(state, p.type, p, p.seed, p.id || state.nextId, p.tier);
     b.well = p.well; b.open = p.open;
   }
   if (repairLandmark && !Object.values(state.buildings).some(b => b.type === LANDMARK)) {
-    const spot = LANDMARK_SPOTS.find(([x, y]) => !canPlace(state, LANDMARK, x, y));
-    if (spot) { insertBuilding(state, LANDMARK, spot[0], spot[1], 0, 1); warn('café was missing and has been restored'); }
+    const spot = LANDMARK_SPOTS.map(([x, y]) => tileToPose(state, LANDMARK, x, y, 0)).find(p => !canPlace(state, LANDMARK, p.position, p.rotation));
+    if (spot) { insertBuilding(state, LANDMARK, spot, 1); warn('café was missing and has been restored'); }
   }
-  return { state, warnings };
+  return { state: reindex(state), warnings };
 }
 
 /**

@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { SCENARIO } from './fixtures/scenario.mjs';
-import { createEmptyState, insertBuilding, CMD } from '../src/core/index.js';
+import { createEmptyState, insertBuilding, tileToPose, CMD } from '../src/core/index.js';
+import { idAtCell } from './helpers.mjs';
 import { createGame } from '../src/application/game.js';
 
 const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/characterization.golden.json', import.meta.url)));
@@ -18,13 +19,13 @@ function run() {
   const I = SCENARIO.initial;
   // the starter goals g0/g0b did not exist before the refactor: mark them done so they pay nothing here
   const s = createEmptyState({ coins: I.coins, population: I.P, employed: I.E, demand: { ...I.dem }, goalsDone: ['g0', 'g0b'] });
-  for (const [type, x, y, r, seed] of SCENARIO.start) insertBuilding(s, type, x, y, r, seed);
+  for (const [type, x, y, r, seed] of SCENARIO.start) insertBuilding(s, type, tileToPose(s, type, x, y, r), seed);
   const game = createGame({ state: s });
   const out = [];
   for (const step of SCENARIO.steps) {
     for (let i = 0; i < (step.tick || 0); i++) game.tick();
     for (const [type, x, y, r, seed] of step.place || []) { const res = game.dispatch({ type: CMD.Place, buildingType: type, x, y, r, seed, autoFace: false }); assert.ok(res.ok, `${type}@${x},${y}: ${res.reason}`); }
-    for (const [x, y] of step.demolish || []) { const id = s.grid[y * 24 + x]; assert.ok(game.dispatch({ type: CMD.Demolish, id }).ok); }
+    for (const [x, y] of step.demolish || []) { const id = idAtCell(s, x, y); assert.ok(game.dispatch({ type: CMD.Demolish, id }).ok); }
     if (step.check) out.push({ label: step.check, snap: structuredClone(game.getSnapshot()) });
   }
   return out;

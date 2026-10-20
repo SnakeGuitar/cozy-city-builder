@@ -19,7 +19,7 @@ export function createBuildingViews(scene, ambient) {
 
   function build(b) {
     const d = DEFS[b.type], group = new THREE.Group(), o = getProto(b.type, variantOf(b.type, b.seed), b.tier || 1).clone();
-    o.rotation.y = b.r * Math.PI / 2; group.add(o);
+    o.rotation.y = b.rotation; group.add(o);
     const blob = new THREE.Mesh(blobGeo, blobMat); blob.scale.set(d.s * 1.3, 1, d.s * 1.3); blob.position.y = .006; blob.userData.blob = true; group.add(blob);
     for (const a of o.userData.anchors.glow) { const sp = new THREE.Sprite(glowMat); sp.position.copy(a); sp.scale.setScalar(.5); o.add(sp); }
     group.position.copy(buildingCenter(b)); group.userData.bid = b.id;

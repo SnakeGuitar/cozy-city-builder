@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { C, T } from './art.js';
 import { GRID_SIZE } from '../../core/config/world.js';
-import { inside } from '../../core/domain/grid.js';
 import { tileCenter } from './coords.js';
 
 const walkerMat = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -34,7 +33,7 @@ export function createAmbient(scene, focus) {
 
   function pickNext(w, reach) {
     const [x, y] = w.cur, opts = [];
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (inside(nx, ny) && reach[ny * GRID_SIZE + nx]) opts.push([nx, ny]); }
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < GRID_SIZE && ny < GRID_SIZE && reach[ny * GRID_SIZE + nx]) opts.push([nx, ny]); }
     const fwd = opts.filter(o => !w.prev || o[0] !== w.prev[0] || o[1] !== w.prev[1]);
     const c = fwd.length ? fwd : opts; return c.length ? c[Math.floor(Math.random() * c.length)] : w.cur;
   }

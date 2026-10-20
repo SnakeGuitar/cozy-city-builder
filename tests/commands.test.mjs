@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CMD, DEFS, refundOf } from '../src/core/index.js';
-import { makeState, centre, createGame, place, ALL_GOALS } from './helpers.mjs';
+import { makeState, centre, createGame, place, ALL_GOALS, idAtCell, cellOf } from './helpers.mjs';
 
 const game = (extra = [], over = {}) => createGame({ state: makeState([...centre(), ...extra], { coins: 1000, ...over }) });
 
@@ -32,9 +32,9 @@ test('place: rejected outside, on occupied tiles, without money, when locked or 
 test('place: auto-facing turns the front toward the road; seeds come from the state RNG', () => {
   const g = game();
   const a = g.dispatch({ type: CMD.Place, buildingType: 'fr_trad', x: 8, y: 12 });
-  assert.equal(g.getSnapshot().state.buildings[a.id].r, 0, 'road below');
+  assert.equal(g.getSnapshot().state.buildings[a.id].rotation, 0, 'road below');
   const b = g.dispatch({ type: CMD.Place, buildingType: 'fr_trad', x: 8, y: 14 });
-  assert.equal(g.getSnapshot().state.buildings[b.id].r, 2, 'road above');
+  assert.equal(g.getSnapshot().state.buildings[b.id].rotation, Math.PI, 'road above');
   const g2 = game();
   g2.dispatch({ type: CMD.Place, buildingType: 'fr_trad', x: 8, y: 12 });
   assert.equal(g2.getSnapshot().state.buildings[a.id].seed, g.getSnapshot().state.buildings[a.id].seed, 'same RNG seed, same building seed');
@@ -46,17 +46,17 @@ test('move keeps the building record and is free; it can overlap its own old til
   const before = { ...g.getSnapshot().state.buildings[id] }, coins = g.getSnapshot().state.coins;
   assert.ok(g.dispatch({ type: CMD.Move, id, x: 7, y: 14, autoFace: false }).ok, 'shifting one tile overlaps itself');
   const b = g.getSnapshot().state.buildings[id];
-  assert.equal(b.id, before.id); assert.equal(b.seed, before.seed); assert.equal(b.x, 7);
+  assert.equal(b.id, before.id); assert.equal(b.seed, before.seed); assert.equal(cellOf(g.getSnapshot().state, b).x, 7);
   assert.equal(g.getSnapshot().state.coins, coins);
   const s = g.getSnapshot().state;
-  assert.equal(s.grid[14 * 24 + 6], 0, 'old tile freed'); assert.equal(s.grid[15 * 24 + 8], id);
+  assert.equal(idAtCell(s, 6, 14), 0, 'old tile freed'); assert.equal(idAtCell(s, 8, 15), id);
   assert.equal(g.dispatch({ type: CMD.Move, id, x: 9, y: 12 }).reason, 'blocked');
 });
 
-test('rotate cycles 0..3', () => {
+test('rotate turns by quarter turns: 0, π/2, π, 3π/2, 0', () => {
   const g = game([['fr_trad', 8, 14]]);
   const id = Object.values(g.getSnapshot().state.buildings).find(b => b.type === 'fr_trad').id;
-  for (let i = 1; i <= 4; i++) { g.dispatch({ type: CMD.Rotate, id }); assert.equal(g.getSnapshot().state.buildings[id].r, i % 4); }
+  for (let i = 1; i <= 4; i++) { g.dispatch({ type: CMD.Rotate, id }); assert.equal(g.getSnapshot().state.buildings[id].rotation, (i % 4) * Math.PI / 2); }
 });
 
 test('demolish refunds half and frees the tiles; the café is protected', () => {
@@ -66,7 +66,7 @@ test('demolish refunds half and frees the tiles; the café is protected', () => 
   assert.ok(g.dispatch({ type: CMD.Demolish, id: house.id }).ok);
   assert.equal(g.getSnapshot().state.coins, coins + refundOf('us_cont'));
   assert.equal(refundOf('us_cont'), 95);
-  assert.equal(g.getSnapshot().state.grid[14 * 24 + 6], 0);
+  assert.equal(idAtCell(g.getSnapshot().state, 6, 14), 0);
   const cafe = Object.values(g.getSnapshot().state.buildings).find(b => b.type === 'cafe');
   const res = g.dispatch({ type: CMD.Demolish, id: cafe.id });
   assert.equal(res.ok, false); assert.equal(res.reason, 'cafeHeart');

@@ -1,7 +1,7 @@
 // The Three.js view: a facade over scene, camera rig, building views, roads, ambient life and overlays.
 // It reacts to core events and snapshots and draws the camera state it is given; it never changes game state.
 import { DEFS, isRoadType } from '../../core/config/catalog.js';
-import { GRID_SIZE } from '../../core/config/world.js';
+import { buildingAtPoint } from '../../core/domain/space.js';
 import { windowMat, lampMat } from './art.js';
 import { createScene, applyDayLight } from './scene.js';
 import { createCameraRig } from './cameraRig.js';
@@ -28,7 +28,7 @@ export function createThreeView(container) {
     get night() { return night; },
     resize(w, h) { sc.resize(w, h); rig.setSize(w, h); },
     /** Rebuild everything from a snapshot (start, new game, load). */
-    rebuild(state, opts) { buildings.rebuildAll(state, opts); roads.rebuild(state); overlays.refreshOccupancy(state.grid); },
+    rebuild(state, opts) { buildings.rebuildAll(state, opts); roads.rebuild(state); overlays.refreshOccupancy(state); },
     /** React to core events (plain data). */
     applyEvents(events, state) {
       let roadsDirty = false, gridDirty = false;
@@ -41,7 +41,7 @@ export function createThreeView(container) {
         else if (e.type === 'state_replaced') this.rebuild(state, { animate: true });
       }
       if (roadsDirty) roads.rebuild(state);
-      if (gridDirty) overlays.refreshOccupancy(state.grid);
+      if (gridDirty) overlays.refreshOccupancy(state);
     },
     /** One frame: camera from its visual state, time-of-day light, animations, render. Returns { night, tint, tintOpacity }. */
     frame(rdt, sdt, clock, state, derived, cameraVisual) {
@@ -56,10 +56,12 @@ export function createThreeView(container) {
     },
     // ---- picking and projection (work with either projection)
     tileAt(cx, cy, s = 1) { const p = rig.groundAt(cx, cy); return p ? tileFromWorld(p, s) : null; },
+    /** Ground point { x, z } under a screen position, or null. */
+    groundAt(cx, cy) { const p = rig.groundAt(cx, cy); return p ? { x: p.x, z: p.z } : null; },
     pickBuilding(cx, cy, state) {
       const id = buildings.pick(rig.raycaster(cx, cy)); if (id && state.buildings[id]) return id;
-      const t = this.tileAt(cx, cy); if (!t || t.x < 0 || t.y < 0 || t.x >= GRID_SIZE || t.y >= GRID_SIZE) return 0;
-      return state.grid[t.y * GRID_SIZE + t.x] || 0;
+      const p = rig.groundAt(cx, cy); if (!p) return 0;
+      return buildingAtPoint(state, p.x, p.z)?.id || 0;
     },
     project: v => rig.project(v),
     topOf: (b, lift) => buildingTop(b, lift),

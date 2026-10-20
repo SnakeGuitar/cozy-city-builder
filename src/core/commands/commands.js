@@ -3,7 +3,8 @@
 import { DEFS, ECON, LANDMARK, isRoadType, tierOf, tierStats, maxTierOf, investedIn, TIER_STATS } from '../config/catalog.js';
 import { SPEEDS } from '../config/world.js';
 import { rulesFor } from '../config/rules.js';
-import { autoFace, canPlace, insertBuilding, occupy, release, removeBuilding } from '../domain/grid.js';
+import { autoFace, canPlace, insertBuilding, removeBuilding, setPose, tileToPose, snapToGrid } from '../domain/space.js';
+import { normAngle, angleToQuarter, QUARTER } from '../domain/geometry.js';
 import { unlockedTypes } from '../goals/goals.js';
 import { nextRandom } from '../util/random.js';
 
@@ -42,43 +43,58 @@ export function upgradePreview(state, id) {
   return { reason: upgradeBlocker(state, b), from, to: next ? from + 1 : from, max: maxTierOf(b.type), cost: next ? upgradeCostFor(state, b) : 0, current, next, changes };
 }
 
-function chooseRotation(state, type, x, y, cmd, fallback) {
-  if (isRoadType(type)) return 0;
-  const r = Number.isInteger(cmd.r) ? ((cmd.r % 4) + 4) % 4 : fallback;
-  return cmd.autoFace === false ? r : autoFace(state, type, x, y, r);
+/**
+ * The pose a command asks for. Free form: { position: { x, z }, rotation } (radians). Grid form (older callers):
+ * { x, y, r } — a cell and a quarter turn. Roads of the grid street tool always sit on a cell, unrotated.
+ * Unless `autoFace: false`, the front turns toward the road (among quarter turns of the asked rotation).
+ */
+function poseFor(state, type, cmd, fallbackRotation = 0) {
+  let pose;
+  if (cmd.position && typeof cmd.position === 'object') pose = { position: { x: +cmd.position.x, z: +cmd.position.z }, rotation: Number.isFinite(cmd.rotation) ? normAngle(cmd.rotation) : fallbackRotation };
+  else if (Number.isInteger(cmd.x) && Number.isInteger(cmd.y)) pose = tileToPose(state, type, cmd.x, cmd.y, Number.isInteger(cmd.r) ? cmd.r : angleToQuarter(fallbackRotation));
+  else return null;
+  if (isRoadType(type)) { const g = snapToGrid(state, type, pose.position, 0); return { position: g.position, rotation: 0 }; }
+  if (cmd.autoFace !== false) pose.rotation = autoFace(state, type, pose.position, pose.rotation);
+  return pose;
 }
+const poseEvent = b => ({ position: { ...b.position }, rotation: b.rotation });
 /** The seed the next placement will get (lets a preview show the right visual variant). Pure. */
 export const peekSeed = state => Math.floor(nextRandom(state.rngSeed).value * 1e6);
 function drawSeed(state) { const r = nextRandom(state.rngSeed); state.rngSeed = r.seed; return Math.floor(r.value * 1e6); }
 
 const handlers = {
   [CMD.Place](state, cmd) {
-    const { buildingType: type, x, y } = cmd, d = DEFS[type];
+    const { buildingType: type } = cmd, d = DEFS[type];
     if (!d) return reject(cmd, 'unknown');
     if (!unlockedTypes(state).has(type)) return reject(cmd, 'locked');
     if (d.unique && Object.values(state.buildings).some(b => b.type === type)) return reject(cmd, 'unique');
-    const why = canPlace(state, type, x, y); if (why) return reject(cmd, why);
+    const pose = poseFor(state, type, cmd); if (!pose) return reject(cmd, 'outside');
+    const why = canPlace(state, type, pose.position, pose.rotation); if (why) return reject(cmd, why);
     if (!canAfford(state, type)) return reject(cmd, 'notEnough');
-    const r = chooseRotation(state, type, x, y, cmd, 0);
     const seed = Number.isInteger(cmd.seed) && cmd.seed >= 0 ? cmd.seed : drawSeed(state);
     const cost = costFor(state, type);
     state.coins -= cost;
-    const b = insertBuilding(state, type, x, y, r, seed);
-    const events = [{ type: 'building_placed', id: b.id, buildingType: type, x, y, r, seed }];
+    const b = insertBuilding(state, type, pose, seed);
+    const events = [{ type: 'building_placed', id: b.id, buildingType: type, ...poseEvent(b), seed, tier: b.tier }];
     if (cost) events.push(coinsEvent(state, -cost));
     return { ok: true, id: b.id, events };
   },
   [CMD.Move](state, cmd) {
     const b = state.buildings[cmd.id]; if (!b) return reject(cmd, 'missing');
-    const why = canPlace(state, b.type, cmd.x, cmd.y, b.id); if (why) return reject(cmd, why);
-    const from = { x: b.x, y: b.y, r: b.r };
-    release(state, b); b.x = cmd.x; b.y = cmd.y; b.r = chooseRotation(state, b.type, cmd.x, cmd.y, cmd, b.r); occupy(state, b);
-    return { ok: true, id: b.id, events: [{ type: 'building_moved', id: b.id, buildingType: b.type, from, x: b.x, y: b.y, r: b.r }] };
+    const pose = poseFor(state, b.type, cmd, b.rotation); if (!pose) return reject(cmd, 'outside');
+    const why = canPlace(state, b.type, pose.position, pose.rotation, b.id); if (why) return reject(cmd, why);
+    const from = poseEvent(b);
+    setPose(state, b, pose.position, pose.rotation);
+    return { ok: true, id: b.id, events: [{ type: 'building_moved', id: b.id, buildingType: b.type, from, ...poseEvent(b) }] };
   },
+  /** Turns a building in place by `by` radians (default a quarter turn), if it still fits. */
   [CMD.Rotate](state, cmd) {
     const b = state.buildings[cmd.id]; if (!b) return reject(cmd, 'missing');
-    b.r = (b.r + 1) % 4;
-    return { ok: true, id: b.id, events: [{ type: 'building_rotated', id: b.id, r: b.r }] };
+    if (isRoadType(b.type)) return reject(cmd, 'notRotatable');
+    const rotation = normAngle(b.rotation + (Number.isFinite(cmd.by) ? cmd.by : QUARTER));
+    const why = canPlace(state, b.type, b.position, rotation, b.id); if (why) return reject(cmd, why);
+    setPose(state, b, b.position, rotation);
+    return { ok: true, id: b.id, events: [{ type: 'building_rotated', id: b.id, rotation: b.rotation }] };
   },
   /** Raises a building one tier. Keeps its id, position, rotation, seed and memory; only the tier changes. */
   [CMD.Upgrade](state, cmd) {
@@ -94,7 +110,7 @@ const handlers = {
     if (b.type === LANDMARK) return reject(cmd, 'cafeHeart');
     const refund = refundFor(state, b);
     state.coins += refund; removeBuilding(state, b);
-    const events = [{ type: 'building_removed', id: b.id, buildingType: b.type, x: b.x, y: b.y, refund }];
+    const events = [{ type: 'building_removed', id: b.id, buildingType: b.type, position: { ...b.position }, rotation: b.rotation, refund }];
     if (refund) events.push(coinsEvent(state, refund));
     return { ok: true, id: b.id, events };
   },

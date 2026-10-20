@@ -72,6 +72,7 @@ for (const [name, mode, blend] of [['orthographic', 'iso', 0], ['perspective', '
     const tile = tileFromWorld(rig.groundAt(sx, sy), 2);
     assert.deepEqual(tile, { x: 11, y: 11 });
     assert.ok(g.dispatch({ type: CMD.Place, buildingType: 'cafe', ...tile }).ok);
-    assert.equal(g.getSnapshot().state.grid[11 * 24 + 11], g.getSnapshot().state.grid[12 * 24 + 12]);
+    const cafe = Object.values(g.getSnapshot().state.buildings)[0];
+    assert.deepEqual(cafe.position, { x: 0, z: 0 }, 'cells 11–12 are the centre of the 24-cell map');
   });
 }

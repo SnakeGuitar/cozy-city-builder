@@ -2,7 +2,7 @@
 import { BASE_UNLOCK, DEFS, LANDMARK } from '../config/catalog.js';
 import { rulesFor } from '../config/rules.js';
 import { GOALS } from '../config/goals.js';
-import { rectDist } from '../domain/grid.js';
+import { rectDist } from '../domain/space.js';
 import { listBuildings } from '../domain/state.js';
 
 const homes = (state, derived) => Object.values(derived.byId).filter(r => r.kind === 'house');

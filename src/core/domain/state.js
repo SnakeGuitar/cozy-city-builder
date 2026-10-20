@@ -4,7 +4,7 @@
 // "simulation memory": lagged values the next tick depends on (housing preference, whether a
 // shop kept its doors open). Everything else the UI shows is derived (core/simulation).
 import { DEFS, LANDMARK, tierStats, maxTierOf } from '../config/catalog.js';
-import { GRID_SIZE, NEW_GAME } from '../config/world.js';
+import { NEW_GAME } from '../config/world.js';
 import { MODES } from '../config/rules.js';
 
 export function createEmptyState(overrides = {}) {
@@ -15,14 +15,15 @@ export function createEmptyState(overrides = {}) {
     goalsDone: [], nextId: 1, rngSeed: 1,
     tutorial: { step: 'done', signals: [] }, // core/tutorial: current step id and front-end signals seen
     buildings: {},                       // id -> building record
-    grid: new Array(GRID_SIZE * GRID_SIZE).fill(0), // tile -> building id (0 = empty), derived from buildings
+    spatial: {},                         // derived spatial hash (domain/space.js); never saved
     ...overrides,
   };
 }
 
-export function createBuilding(id, type, x, y, r, seed, tier = 1) {
+/** A building record: plain data only. position = centre on the ground (world units), rotation = radians about the vertical axis. */
+export function createBuilding(id, type, position, rotation, seed, tier = 1) {
   if (!DEFS[type]) throw new Error(`unknown building type: ${type}`);
-  return { id, type, tier: Math.max(1, Math.min(maxTierOf(type), tier)), x, y, r, seed, well: 50, open: true };
+  return { id, type, tier: Math.max(1, Math.min(maxTierOf(type), tier)), position: { x: position.x, z: position.z }, rotation, seed, well: 50, open: true };
 }
 /** A building's numbers at its tier (jobs, capacity, customers, output, upkeep, radius …). */
 export const statsOf = b => tierStats(b.type, b.tier || 1);

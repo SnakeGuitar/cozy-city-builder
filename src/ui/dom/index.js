@@ -94,7 +94,7 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
     const { state } = snap(); let structural = false, tickHappened = false;
     for (const e of events) switch (e.type) {
       case 'building_placed': structural = true; isRoadType(e.buildingType) ? audio.tick() : audio.place(); if (slot.newT.includes(e.buildingType)) slot.newT = slot.newT.filter(x => x !== e.buildingType); break;
-      case 'building_removed': structural = true; audio.remove(); if (e.refund) labels.floater(view.topOf({ type: e.buildingType, x: e.x, y: e.y }, -.45), `${t('refunded', { n: e.refund })} ${ico('i-coin', '')}`, '', 1.4); income.delete(e.id); break;
+      case 'building_removed': structural = true; audio.remove(); if (e.refund) labels.floater(view.topOf({ type: e.buildingType, position: e.position }, -.45), `${t('refunded', { n: e.refund })} ${ico('i-coin', '')}`, '', 1.4); income.delete(e.id); break;
       case 'building_moved': structural = true; audio.place(); break;
       case 'building_rotated': structural = true; audio.click(); break;
       case 'building_upgraded': { structural = true; audio.upgrade(); const b = state.buildings[e.id]; if (b) labels.floater(view.topOf(b, .3), `${'★'.repeat(e.toTier)} ${t('tierN', { n: e.toTier, m: DEFS[e.buildingType].tiers.length })}`, 'well', 2.2); toast(`${ico('i-up')} ${t('upgraded', { b: t('n_' + e.buildingType), n: e.toTier })}`); break; }

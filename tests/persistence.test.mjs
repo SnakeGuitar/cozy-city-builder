@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createSaveDocument, loadSave, migrateSave, normalizeGame, serializeGame, SAVE_VERSION, computeDerived } from '../src/core/index.js';
 import { createGame, newGameState } from '../src/application/game.js';
+import { cellOf, idAtCell } from './helpers.mjs';
 
 const fixture = n => JSON.parse(fs.readFileSync(new URL(`./fixtures/${n}`, import.meta.url)));
 
@@ -14,7 +15,7 @@ test('round trip: serialize → JSON → load gives the same game', () => {
   const { state, ui, warnings } = loadSave(doc);
   assert.deepEqual(warnings, []);
   assert.deepEqual(serializeGame(state), serializeGame(g.getSnapshot().state));
-  assert.deepEqual(state.grid, g.getSnapshot().state.grid);
+  assert.deepEqual(state.spatial, g.getSnapshot().state.spatial);
   assert.equal(ui.lang, 'es');
   // and it keeps running identically
   const a = createGame({ state }), b = g;
@@ -37,7 +38,7 @@ test('v2 saves load: ids, positions, prefs and progress survive', () => {
   assert.deepEqual(state.goalsDone, ['g0', 'g0b', 'g1', 'g2', 'g4'], 'older towns skip the starter goals');
   assert.equal(state.clock.speed, 3); assert.equal(state.clock.day, 2);
   assert.equal(Object.keys(state.buildings).length, raw.b.length);
-  for (const o of raw.b) { const b = state.buildings[o.id]; assert.equal(b.type, o.t); assert.equal(b.x, o.x); assert.equal(b.y, o.y); assert.equal(b.r, o.r); assert.equal(b.seed, o.s); }
+  for (const o of raw.b) { const b = state.buildings[o.id], c = cellOf(state, b); assert.equal(b.type, o.t); assert.equal(c.x, o.x); assert.equal(c.y, o.y); assert.equal(c.r, o.r); assert.equal(b.seed, o.s); }
   assert.equal(state.nextId, 40);
   assert.deepEqual(ui, { newT: ['fire', 'police'], muted: true, tips: true, tut: { moved: true, age: 120, free: 3, city: true }, tab: 'services', filt: { fam: 'jp', era: 'all' }, lang: 'ja', cam: [-3, 4.5, .785, 2.1] });
 });
@@ -69,14 +70,14 @@ test('damaged saves are rejected or normalised safely', () => {
   assert.deepEqual(state.goalsDone, ['g1']);
   assert.equal(state.mode, 'normal'); assert.deepEqual(state.tutorial, { step: 'done', signals: ['ok'] });
   const list = Object.values(state.buildings).sort((a, b) => a.id - b.id);
-  assert.deepEqual(list.map(b => [b.type, b.x, b.y]), [['fr_trad', 2, 2], ['cafe', 10, 11], ['fr_trad', 6, 6], ['fr_trad', 4, 4]]);
-  const h = list[0]; assert.equal(h.r, 0); assert.equal(h.seed, 0);
+  assert.deepEqual(list.map(b => { const c = cellOf(state, b); return [b.type, c.x, c.y]; }), [['fr_trad', 2, 2], ['cafe', 10, 11], ['fr_trad', 6, 6], ['fr_trad', 4, 4]]);
+  const h = list[0]; assert.equal(h.rotation, 0); assert.equal(h.seed, 0);
   assert.equal(list[2].well, 100); assert.equal(list[2].open, true);
   assert.ok(new Set(list.map(b => b.id)).size === list.length, 'ids unique');
   assert.ok(state.nextId > Math.max(...list.map(b => b.id)));
   assert.ok(warnings.length >= 8);
-  // grid matches buildings
-  for (const b of list) assert.equal(state.grid[b.y * 24 + b.x], b.id);
+  // the spatial index matches the buildings
+  for (const b of list) { const c = cellOf(state, b); assert.equal(idAtCell(state, c.x, c.y), b.id); }
   assert.doesNotThrow(() => computeDerived(state));
 });
 

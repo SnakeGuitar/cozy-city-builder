@@ -9,7 +9,7 @@ const count = g => Object.keys(g.getSnapshot().state.buildings).length;
 for (const mode of ['normal', 'sandbox']) test(`a new ${mode} game starts completely empty`, () => {
   const s = newGameState(mode);
   assert.equal(s.mode, mode);
-  assert.deepEqual(s.buildings, {}); assert.ok(s.grid.every(id => id === 0));
+  assert.deepEqual(s.buildings, {}); assert.deepEqual(s.spatial, {});
   assert.equal(s.population, 0); assert.equal(s.nextId, 1);
   const g = createGame({ state: s });
   for (let i = 0; i < 30; i++) g.tick();

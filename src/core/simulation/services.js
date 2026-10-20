@@ -1,7 +1,7 @@
 // Local services: a home is attended only if a provider is within range AND has capacity left.
 // Homes nearest to a provider are served first; a saturated provider turns the rest away.
 import { DEFS, SERVICE_TYPES } from '../config/catalog.js';
-import { rectDist } from '../domain/grid.js';
+import { rectDist } from '../domain/space.js';
 import { statsOf } from '../domain/state.js';
 import { efficiency } from './employment.js';
 

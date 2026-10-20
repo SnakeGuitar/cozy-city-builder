@@ -1,6 +1,6 @@
 // Neighbourhood effects (fx in the catalogue): wellbeing bonuses for homes and income bonuses for shops/industry.
 import { DEFS } from '../config/catalog.js';
-import { rectDist } from '../domain/grid.js';
+import { rectDist } from '../domain/space.js';
 
 /** @returns {Record<number,{src:{from:number,k:string,v:number}[], wellB:number, mult:number}>} */
 export function computeNeighbourEffects(things, connected) {
