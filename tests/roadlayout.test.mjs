@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CMD, nearestRoadPoint, closestOnPolyline, segmentPolyline, listSegments } from '../src/core/index.js';
-import { roadLayout } from '../src/presentation/roadLayout.js';
+import { roadLayout, roadPieces } from '../src/presentation/roadLayout.js';
 import { createWalkers } from '../src/presentation/walkers.js';
 import { mulberry32 } from '../src/core/util/random.js';
 import { makeState, createGame, ALL_GOALS } from './helpers.mjs';
@@ -59,4 +59,24 @@ test('walkers follow curved roads, stay on them and cross junctions', () => {
   const a = createWalkers(mulberry32(3)), b = createWalkers(mulberry32(3));
   for (let i = 0; i < 50; i++) assert.deepEqual(a.update(s, main, 10, .2), b.update(s, main, 10, .2));
   assert.deepEqual(createWalkers(mulberry32(1)).update(s, [], 10, .1), [], 'no main roads, no walkers');
+});
+
+test('road pieces: one demolition changes only the pieces it touches, and undo brings back the same keys', () => {
+  const g = createGame({ state: makeState([], { coins: 99999, goalsDone: ALL_GOALS }) }), snap = () => g.getSnapshot().state;
+  for (const v of [-8, -3, 3, 8]) {
+    g.dispatch({ type: CMD.BuildRoad, points: [{ x: -9, z: v }, { x: 9, z: v }], style: 'road_asphalt', shape: 'polyline' });
+    g.dispatch({ type: CMD.BuildRoad, points: [{ x: v, z: -9 }, { x: v, z: 9 }], style: 'road_cobble', shape: 'polyline' });
+  }
+  assert.ok(listSegments(snap()).length >= 30, 'a street grid');
+  const before = roadPieces(snap()), keys = new Set(before.map(p => p.key));
+  assert.equal(keys.size, before.length, 'keys are unique');
+  assert.ok(before.every(p => /^-?\d+:-?\d+$/.test(p.chunk)));
+  assert.deepEqual(roadPieces(snap()).map(p => p.key), before.map(p => p.key), 'same state, same keys');
+  const seg = listSegments(snap()).find(s => { const pl = segmentPolyline(snap(), s); return Math.abs(pl[0].z - 3) < 1e-6 && Math.abs(pl.at(-1).z - 3) < 1e-6 && Math.min(pl[0].x, pl.at(-1).x) > -4 && Math.max(pl[0].x, pl.at(-1).x) < 4; });
+  assert.ok(seg, 'a segment between two junctions');
+  assert.ok(g.dispatch({ type: CMD.DemolishRoad, segmentId: seg.id }).ok);
+  const after = roadPieces(snap()), kept = after.filter(p => keys.has(p.key)).length;
+  assert.ok(after.length - kept <= 4 && before.length - kept <= 6, `few pieces change (${before.length} → ${after.length}, ${kept} kept)`);
+  assert.ok(g.undoRoad().ok);
+  assert.deepEqual(new Set(roadPieces(snap()).map(p => p.key)), keys, 'undo restores exactly the old pieces');
 });

@@ -15,9 +15,11 @@ import { createOverlays } from './overlays.js';
 import { createTerrainView } from './terrain.js';
 import { buildingTop, buildingCenter, tileFromWorld } from './coords.js';
 import { variantOf } from './models/index.js';
+import { planViewUpdates } from '../../presentation/viewUpdates.js';
 export { renderThumbnails } from './thumbnails.js';
 
-export function createThreeView(container) {
+/** `time(name, fn)` measures named pieces of work (rebuilds) for the performance overlay; optional. */
+export function createThreeView(container, { time = (name, fn) => fn() } = {}) {
   const sc = createScene(container);
   const rig = createCameraRig();
   let current = null; // the state last drawn: terrain heights come from it
@@ -33,29 +35,37 @@ export function createThreeView(container) {
 
   return {
     canvas: sc.renderer.domElement, overlays, ambient, variantOf, rig,
+    /** The Three.js scene, for diagnostics only (perf breakdowns); nothing outside rendering edits it. */
+    scene: sc.scene,
     get night() { return night; },
     resize(w, h) { sc.resize(w, h); rig.setSize(w, h); },
+    /** Finishes building animations now and re-merges every chunk (benchmarks, reduced motion). */
+    settleAnimations() { buildings.settleAnimations(); },
+    buildingStats: () => buildings.stats,
+    /** Road pieces cached and chunks merged by the last road update (how incremental it was). */
+    roadStats: () => roads.stats,
+    /** Renderer counters for the last frame (draw calls, triangles) and live GPU resources. */
+    info() { const i = sc.renderer.info; return { calls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries, textures: i.memory.textures }; },
     /** Rebuild everything from a snapshot (start, new game, load). */
     rebuild(state, opts) {
-      current = state; terrain.rebuild(state); overlays.setMap(state);
-      buildings.rebuildAll(state, opts); roads.rebuild(state, ground); overlays.refreshOccupancy(state); ambient.setWeather(terrain.weather);
+      current = state; time('rebuild.terrain', () => terrain.rebuild(state)); overlays.setMap(state);
+      time('rebuild.buildings', () => buildings.rebuildAll(state, opts)); time('rebuild.roads', () => roads.rebuild(state, ground)); overlays.refreshOccupancy(state); ambient.setWeather(terrain.weather);
     },
     /** React to core events (plain data). */
     applyEvents(events, state) {
       current = state;
-      let roadsDirty = false, gridDirty = false;
-      for (const e of events) {
-        if (e.type === 'building_placed') { gridDirty = true; buildings.add(state.buildings[e.id]); }
-        else if (e.type === 'building_removed') { gridDirty = true; buildings.remove(e.id, true); }
-        else if (e.type === 'road_built' || e.type === 'road_removed' || e.type === 'road_edited' || e.type === 'roads_replaced') { roadsDirty = true; if (e.type === 'road_removed') overlays.roadHighlight(null, null); }
-        else if (e.type === 'building_moved' || e.type === 'building_rotated') { gridDirty = true; const b = state.buildings[e.id]; if (b) buildings.replace(b, { animate: e.type === 'building_moved' }); }
-        else if (e.type === 'building_upgraded') { const b = state.buildings[e.id]; if (b) buildings.upgrade(b); }
-        else if (e.type === 'goal_completed') ambient.confetti();
-        else if (e.type === 'state_replaced') this.rebuild(state, { animate: true });
+      const plan = planViewUpdates(events, state);
+      for (let i = 0; i < plan.confetti; i++) ambient.confetti();
+      if (plan.rebuild) { this.rebuild(state, { animate: true }); return; }
+      for (const { op, id, animate } of plan.ops) {
+        const b = state.buildings[id];
+        if (op === 'add') buildings.add(b); else if (op === 'remove') buildings.remove(id, true);
+        else if (op === 'replace') buildings.replace(b, { animate }); else if (op === 'upgrade') buildings.upgrade(b);
       }
-      if (roadsDirty) roads.rebuild(state, ground);
-      if (gridDirty) overlays.refreshOccupancy(state);
-      if (roadsDirty || gridDirty) terrain.refresh(state);
+      if (plan.clearRoadHighlight) overlays.roadHighlight(null, null);
+      if (plan.roads) time('rebuild.roads', () => roads.rebuild(state, ground));
+      if (plan.occupancy) time('rebuild.occupancy', () => overlays.refreshOccupancy(state));
+      if (plan.roads || plan.occupancy) time('rebuild.scenery', () => terrain.refresh(state));
     },
     /** One frame: camera from its visual state, time-of-day light, animations, render. Returns { night, tint, tintOpacity }. */
     frame(rdt, sdt, clock, state, derived, cameraVisual) {

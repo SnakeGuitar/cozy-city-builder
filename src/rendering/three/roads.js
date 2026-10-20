@@ -6,27 +6,51 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { edgeMat } from './art.js';
 import { DEFS } from '../../core/config/catalog.js';
-import { roadLayout } from '../../presentation/roadLayout.js';
-import { createRoadBatch, addPad, addRibbon, finishBatch } from './roadMesh.js';
+import { roadPieces } from '../../presentation/roadLayout.js';
+import { createRoadBatch, addPad, addRibbon, finishBatch, bakePiece, disposePiece, assemblePieces, disposeGroup } from './roadMesh.js';
 
 const lookOf = style => DEFS[style]?.road?.look || 'classic';
 
-/** Adds the whole network to a batch (layout from presentation/roadLayout.js). `heightAt(x, z)` drapes it on the ground. */
-export function addNetwork(batch, state, heightAt = () => 0) {
-  const { ribbons, pads } = roadLayout(state);
-  for (const rb of ribbons) addRibbon(batch, rb.points.map(p => ({ x: p.x, y: heightAt(p.x, p.z), z: p.z })), rb.width, lookOf(rb.style), { closedStart: rb.closedStart, closedEnd: rb.closedEnd, decoSeed: rb.segmentIds[0] * 7 });
-  for (const p of pads) addPad(batch, { x: p.center.x, y: heightAt(p.center.x, p.center.z) - .002, z: p.center.z }, p.width, lookOf(p.style), p.exits);
-  return batch;
-}
+const drawRibbon = (batch, rb, heightAt) => addRibbon(batch, rb.points.map(p => ({ x: p.x, y: heightAt(p.x, p.z), z: p.z })), rb.width, lookOf(rb.style), { closedStart: rb.closedStart, closedEnd: rb.closedEnd, decoSeed: rb.segmentIds[0] * 7 });
+const drawPad = (batch, p, heightAt) => addPad(batch, { x: p.center.x, y: heightAt(p.center.x, p.center.z) - .002, z: p.center.z }, p.width, lookOf(p.style), p.exits);
 
+/**
+ * The drawn network, kept in step incrementally: pieces (presentation/roadLayout.js roadPieces) are baked once per
+ * key and merged per 8-unit chunk; an edit rebakes only new pieces and re-merges only chunks whose pieces changed.
+ */
 export function createRoadView(scene) {
-  let group = null;
+  const root = new THREE.Group(), pieces = new Map(), chunks = new Map(); // key → baked piece; chunk → { sig, group }
+  let ground = null; // the map the cached heights belong to
+  const stats = { pieces: 0, built: 0, chunks: 0, merged: 0 };
+  scene.add(root);
+  const clear = () => {
+    for (const p of pieces.values()) disposePiece(p); pieces.clear();
+    for (const c of chunks.values()) { root.remove(c.group); disposeGroup(c.group); } chunks.clear();
+  };
   return {
+    stats,
+    /** Brings the drawn network in line with `state`, rebuilding only what changed. */
     rebuild(state, heightAt) {
-      if (group) { scene.remove(group); group.traverse(o => o.geometry && o.geometry.dispose()); }
-      group = finishBatch(addNetwork(createRoadBatch(), state, heightAt), mergeGeometries, edgeMat);
-      scene.add(group);
+      if (ground !== state.map) { clear(); ground = state.map; }
+      const want = new Map(); let built = 0, merged = 0;
+      for (const p of roadPieces(state)) {
+        if (!pieces.has(p.key)) { const b = createRoadBatch(); if (p.ribbon) drawRibbon(b, p.ribbon, heightAt); else drawPad(b, p.pad, heightAt); pieces.set(p.key, bakePiece(b, mergeGeometries)); built++; }
+        if (!want.has(p.chunk)) want.set(p.chunk, []);
+        want.get(p.chunk).push(p.key);
+      }
+      for (const [id, c] of chunks) if (!want.has(id)) { root.remove(c.group); disposeGroup(c.group); chunks.delete(id); }
+      for (const [id, keys] of want) {
+        const sig = keys.sort().join('\n'), c = chunks.get(id);
+        if (c?.sig === sig) continue;
+        if (c) { root.remove(c.group); disposeGroup(c.group); }
+        const group = assemblePieces(keys.map(k => pieces.get(k)), mergeGeometries, edgeMat);
+        root.add(group); chunks.set(id, { sig, group }); merged++;
+      }
+      const live = new Set([...want.values()].flat());
+      for (const [k, p] of pieces) if (!live.has(k)) { disposePiece(p); pieces.delete(k); }
+      Object.assign(stats, { pieces: pieces.size, built, chunks: chunks.size, merged });
     },
+    dispose() { clear(); scene.remove(root); },
   };
 }
 

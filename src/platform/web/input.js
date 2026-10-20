@@ -3,7 +3,7 @@
 import { CMD } from '../../core/commands/commands.js';
 import { createGestureTracker } from '../../presentation/input/gestures.js';
 
-export function bindInput({ canvas, interaction, camera, game, audio, isPlaying, onEscape, onTogglePlacement }) {
+export function bindInput({ canvas, interaction, camera, game, audio, isPlaying, onEscape, onTogglePlacement, onTogglePerf }) {
   const tracker = createGestureTracker(), keys = new Set();
   const run = intents => { for (const it of intents) switch (it.type) {
     case 'hover': interaction.pointerMove(it.x, it.y); break;
@@ -31,6 +31,7 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
   addEventListener('keydown', e => {
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
     const k = e.key.toLowerCase();
+    if (k === 'f3') { e.preventDefault(); onTogglePerf?.(); return; }
     if (!isPlaying()) { if (k === 'escape') { e.preventDefault(); onEscape(); } return; }
     keys.add(k);
     if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); if (k === 'y' || e.shiftKey) interaction.redoRoad(); else interaction.undoRoad(); return; }

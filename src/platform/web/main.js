@@ -15,6 +15,8 @@ import { createLocalStorage } from './storage.js';
 import { readSettings, writeSettings } from './settings.js';
 import { createAudio } from './audio.js';
 import { bindInput } from './input.js';
+import { createPerfStats } from '../../presentation/perf.js';
+import { buildBenchmarkTown } from '../../application/benchmark.js';
 
 const storage = createLocalStorage();
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -23,7 +25,8 @@ setLanguage(settings.lang);
 const saveSettings = () => writeSettings(storage, settings);
 const audio = createAudio(settings.muted);
 
-const view = createThreeView(document.getElementById('stage'));
+const perf = createPerfStats(), now = () => performance.now();
+const view = createThreeView(document.getElementById('stage'), { time: (name, fn) => perf.time(name, fn, now) });
 const thumbs = renderThumbnails();
 paintPaper(mulberry32);
 
@@ -57,7 +60,7 @@ const menu = createMenu({ settings, actions: {
 function renderMenu() { menu.render(app.nav, { hasNormal: app.hasSave('normal'), hasSandbox: app.hasSave('sandbox'), mode: app.mode }); }
 document.getElementById('b-menu').onclick = () => app.navigate({ type: 'pause' });
 document.getElementById('b-set').onclick = () => app.navigate({ type: 'open_settings' });
-const input = bindInput({ canvas: view.canvas, interaction, camera, game, audio, isPlaying: playing, onTogglePlacement: () => ui.togglePlacement(),
+const input = bindInput({ canvas: view.canvas, interaction, camera, game, audio, isPlaying: playing, onTogglePlacement: () => ui.togglePlacement(), onTogglePerf: () => togglePerf(),
   onEscape: () => { if (app.nav.screen === 'playing') app.navigate({ type: 'pause' }); else if (app.nav.screen !== 'main_menu' || app.nav.confirm) app.navigate({ type: 'back' }); } });
 
 ui.applyLanguage(settings.lang);
@@ -75,24 +78,34 @@ addEventListener('pagehide', () => { if (app.nav.screen !== 'main_menu') app.sav
 document.addEventListener('pointerdown', () => audio.init(), { once: true });
 
 // ---------------------------------------------------------------- frame loop (the clock adapter)
-let last = performance.now(), clock = 0, autosave = 0, chirp = 6;
-function frame(now) {
-  const rdt = Math.min(.05, (now - last) / 1000); last = now; clock += rdt;
+let last = performance.now(), clock = 0, autosave = 0, chirp = 6, perfShown = 0;
+const perfEl = document.getElementById('perf');
+/** F3: the performance overlay (frame times, sections, draw calls, memory). */
+function togglePerf(on = perfEl.hidden) { perfEl.hidden = !on; if (on) perf.reset(); }
+function renderPerf() {
+  const s = perf.summary(), sec = s.sections, f = n => (n ?? 0).toFixed(2), c = s.counters;
+  perfEl.textContent = `${s.fps.toFixed(0)} fps · frame p50 ${f(s.p50)} p95 ${f(s.p95)} max ${f(s.max)} ms\n`
+    + ['sim', 'events', 'render', 'ui'].map(k => `${k.padEnd(6)} ${f(sec[k]?.avg)} ms (max ${f(sec[k]?.max)})`).join('\n')
+    + Object.keys(sec).filter(k => k.startsWith('rebuild')).map(k => `\n${k} ${f(sec[k].last)} ms ×${sec[k].count}`).join('')
+    + `\ndraw calls ${c.calls ?? 0} · triangles ${((c.triangles ?? 0) / 1000).toFixed(0)}k · geometries ${c.geometries ?? 0} · textures ${c.textures ?? 0}`
+    + `\nbuildings ${Object.keys(game.getSnapshot().state.buildings).length} · road segments ${Object.keys(game.getSnapshot().state.roads.segments).length}`;
+}
+function frame(t) {
+  const rdt = Math.min(.05, (t - last) / 1000); perf.frame(t - last); last = t; clock += rdt;
   if (playing()) { const { px, pz } = input.panDirection(); if (px || pz) camera.panKeys(px, pz, rdt); }
-  app.frame(rdt);                                   // the world only moves on the 'playing' screen
+  perf.time('sim', () => app.frame(rdt), now);      // the world only moves on the 'playing' screen
   const events = app.drainEvents(), snap = game.getSnapshot();
   for (const e of events) {
     if (e.type === 'session_started') { ui.setSlot(normalizeSlotUi(e.ui)); camera.setMapSize(game.getSnapshot().state.map.size); camera.restore(e.ui.camera ?? e.ui.cam); }
     else if (e.type === 'nav_changed') { renderMenu(); if (e.nav.screen === 'main_menu') { interaction.setTool({ kind: 'select' }); interaction.select(0); } }
     else if (e.type === 'save_rejected' || (e.type === 'save_loaded' && e.warnings.length)) console.warn('save:', e);
   }
-  view.applyEvents(events, snap.state);
-  ui.onEvents(events);
+  if (events.length) perf.time('events', () => { view.applyEvents(events, snap.state); ui.onEvents(events); }, now);
   if (worldVisible(app.nav)) {
     const sdt = playing() && !snap.state.clock.paused ? rdt * snap.state.clock.speed : 0;
-    const light = view.frame(rdt, sdt, clock, snap.state, snap.derived, camera.update(rdt));
-    interaction.frame(rdt);
-    ui.frame(rdt, light);
+    const light = perf.time('render', () => view.frame(rdt, sdt, clock, snap.state, snap.derived, camera.update(rdt)), now);
+    perf.time('ui', () => { interaction.frame(rdt); ui.frame(rdt, light); }, now);
+    if (!perfEl.hidden) { perf.count(view.info()); if ((perfShown += rdt) > .5) { perfShown = 0; renderPerf(); } }
     if (playing() && (autosave += rdt) > 5) { autosave = 0; app.save(); }
     if (playing() && (chirp -= rdt) < 0) { chirp = 7 + Math.random() * 10; if (view.night < .4) audio.chirp(); }
   }
@@ -101,4 +114,6 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // small debugging handle (read-only use from the console and the browser checks)
-window.__villa = { app, game, view, camera, interaction, settings, ui };
+window.__villa = { app, game, view, camera, interaction, settings, ui, perf, togglePerf,
+  /** Fills the current game with the benchmark town (use in a sandbox): returns what was built. */
+  bench: () => buildBenchmarkTown(game) };

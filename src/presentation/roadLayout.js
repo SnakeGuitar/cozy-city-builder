@@ -80,3 +80,21 @@ export function roadLayout(state) {
   });
   return { ribbons, pads: padList };
 }
+
+const q = v => Math.round(v * 1e4);
+/**
+ * The layout cut into drawable pieces, each keyed by everything that decides its look (ribbon: style, width, ends,
+ * first segment id (prop variation) and centre line; pad: style, size, centre and exits) and assigned to the square
+ * spatial chunk (`chunk` units per side) its middle falls in. A renderer can keep pieces whose key is unchanged and
+ * re-merge only chunks whose set of keys changed: one edit then touches a handful of pieces, not the whole network.
+ * @returns {{ key:string, chunk:string, ribbon?:object, pad?:object }[]}
+ */
+export function roadPieces(state, chunk = 8) {
+  const { ribbons, pads } = roadLayout(state), out = [], chunkOf = (x, z) => Math.floor(x / chunk) + ':' + Math.floor(z / chunk);
+  for (const rb of ribbons) {
+    const m = rb.points[rb.points.length >> 1];
+    out.push({ key: `r${rb.style}|${rb.width}|${+!!rb.closedStart}${+!!rb.closedEnd}|${rb.segmentIds[0]}|${rb.points.map(p => q(p.x) + ',' + q(p.z)).join(';')}`, chunk: chunkOf(m.x, m.z), ribbon: rb });
+  }
+  for (const p of pads) out.push({ key: `p${p.style}|${p.width}|${q(p.center.x)},${q(p.center.z)}|${p.exits.map(d => `${q(d.x)},${q(d.z)},${q(d.hw ?? -1)}`).join(';')}`, chunk: chunkOf(p.center.x, p.center.z), pad: p });
+  return out;
+}

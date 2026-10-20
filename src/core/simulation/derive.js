@@ -21,15 +21,27 @@ import { computeIndustry } from './industry.js';
 import { computeFinance } from './finance.js';
 import { computeDemand } from './demand.js';
 
+// The road network and neighbourhood effects depend only on where buildings and roads are: they are kept per
+// structural revision (state.rev), so ticks without edits skip them. The cache never changes a result.
+const structural = new WeakMap();
+function structure(state, things) {
+  const rev = state.rev || 0; let c = structural.get(state);
+  if (!c || c.rev !== rev || c.count !== things.length) {
+    const roads = computeRoadNetwork(state, things);
+    c = { rev, count: things.length, roads, effects: computeNeighbourEffects(things, roads.connected) };
+    structural.set(state, c);
+  }
+  return c;
+}
+
 export function computeDerived(state, { mode = 'snapshot' } = {}) {
   const things = listBuildings(state).filter(b => !isRoadType(b.type));
   const kind = b => DEFS[b.type].kind;
   const rules = rulesFor(state);
   const broke = !rules.unlimitedMoney && state.coins <= 0;
   const hasCafe = things.some(b => b.type === LANDMARK);
-  const roads = computeRoadNetwork(state, things);
+  const { roads, effects } = structure(state, things);
   const { connected } = roads;
-  const effects = computeNeighbourEffects(things, connected);
   const houses = things.filter(b => kind(b) === 'house');
   const housing = allocateHousing(houses, connected, state.population);
   const work = computeEmployment(things, connected, state.population, state.employed, mode);

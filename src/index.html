@@ -136,6 +136,8 @@ button:focus-visible{outline:2px solid var(--lime-deep);outline-offset:2px;}
 /* ---------- placement bar ---------- */
 .placebar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--catH,170px) + 18px + env(safe-area-inset-bottom,0px));z-index:12;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;max-width:calc(100vw - 32px);padding:6px 8px;border-radius:16px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);font-size:12.5px;}
 .placebar[hidden]{display:none;}
+.perf{position:fixed;left:12px;bottom:calc(var(--catH,170px) + 70px);z-index:40;margin:0;padding:8px 10px;border-radius:10px;background:rgba(40,30,22,.82);color:#f6eedb;font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none;white-space:pre;}
+.perf[hidden]{display:none;}
 .pb-seg{display:flex;border:1px solid var(--line-strong);border-radius:999px;overflow:hidden;}
 .pb-seg button{border:0;background:#fffaf0;padding:5px 11px;font-weight:800;display:flex;align-items:center;gap:5px;min-height:32px;}
 .pb-seg button.on{background:var(--lime-deep);color:#fff;}
@@ -386,6 +388,7 @@ body.in-menu #stage,body.in-menu #top,body.in-menu #catalog,body.in-menu #goals,
 </nav>
 <div id="help" data-i="help"></div>
 <div id="toasts"></div>
+<pre id="perf" class="perf" hidden aria-label="Rendimiento"></pre>
 <div id="menu" class="menu-layer" role="dialog" aria-modal="true" aria-labelledby="menu-title"></div>
 <div id="tip" hidden></div>
 

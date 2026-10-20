@@ -38,6 +38,8 @@ export function createOverlays(scene, ground = () => 0) {
     o.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .62; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); c.castShadow = false; } if (c.isLineSegments) c.material = ghostEdge; });
     return o;
   }
+  /** Removes the ghost; a road ghost owns its merged geometry, a building ghost shares its model's. */
+  const dropGhost = () => { if (!ghost) return; scene.remove(ghost); ghost.traverse(c => { if (c.userData.owned) c.geometry.dispose(); }); };
   // ---- roads: the plan being drawn (styled ghost over a validity band) and the piece under the demolish cursor
   const bandMat = new THREE.MeshBasicMaterial({ color: '#5f9a2c', transparent: true, opacity: .4, depthWrite: false });
   const hiMat = new THREE.MeshBasicMaterial({ color: '#c8553f', transparent: true, opacity: .45, depthWrite: false, depthTest: false });
@@ -62,7 +64,9 @@ export function createOverlays(scene, ground = () => 0) {
       pos.push(p.x + nx * hw, ground(p.x + nx * hw, p.z + nz * hw) + y, p.z + nz * hw, p.x - nx * hw, ground(p.x - nx * hw, p.z - nz * hw) + y, p.z - nz * hw); if (i) { const k = i * 2; idx.push(k - 2, k, k - 1, k - 1, k, k + 1); } });
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); return g;
   }
-  const disposeGroup = o => { if (!o) return; scene.remove(o); o.traverse(c => { if (c.geometry) c.geometry.dispose(); }); };
+  // shared geometry (marker shapes, cached roadside props) stays alive; only geometry made for one overlay is released
+  const sharedGeos = new Set([handleGeo, ringGeo, endRingGeo, endDotGeo, crossGeo]);
+  const disposeGroup = o => { if (!o) return; scene.remove(o); o.traverse(c => { if (c.geometry && !sharedGeos.has(c.geometry) && !c.userData.shared) c.geometry.dispose(); }); };
 
   return {
     /** Shows a road plan from core/domain/roadPlan.js while it is drawn; `ok` tints it green or red. */
@@ -131,12 +135,12 @@ export function createOverlays(scene, ground = () => 0) {
     hideRange() { range.visible = false; },
     ghost(type, variant, position, rotation, ok, time, tier = 1) {
       const key = type + ':' + variant + ':' + tier;
-      if (ghostKey !== key) { if (ghost) scene.remove(ghost); ghost = ghostOf(type, variant, tier); ghostKey = key; scene.add(ghost); }
+      if (ghostKey !== key) { dropGhost(); ghost = ghostOf(type, variant, tier); ghostKey = key; scene.add(ghost); }
       ghost.visible = true;
       ghost.position.set(position.x, ground(position.x, position.z) + (ok ? .06 + Math.sin(time * 3.3) * .015 : .02), position.z); ghost.rotation.y = rotation;
     },
     hideGhost() { if (ghost) ghost.visible = false; },
-    clearGhost() { if (ghost) scene.remove(ghost); ghost = null; ghostKey = ''; },
+    clearGhost() { dropGhost(); ghost = null; ghostKey = ''; },
     /** links: [{ from: Vector3, to: Vector3, kind: 'inc'|'well'|'svc' }] */
     relations(links) {
       relations.clear();

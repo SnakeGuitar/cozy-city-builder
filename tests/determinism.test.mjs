@@ -42,3 +42,17 @@ test('core never calls Math.random', () => {
   const orig = Math.random; Math.random = () => { throw new Error('Math.random used by the core'); };
   try { play(); } finally { Math.random = orig; }
 });
+
+test('the structural cache never changes a result: cached and fresh snapshots agree through edits', async () => {
+  const { buildBenchmarkTown } = await import('../src/application/benchmark.js');
+  const g = createGame({ state: newGameState('sandbox', { preset: 'plains', seed: 3, size: 24 }) });
+  buildBenchmarkTown(g);
+  const fresh = () => computeDerived(structuredClone(g.getSnapshot().state)); // a copy has no cache entry
+  for (let i = 0; i < 5; i++) g.tick();
+  assert.deepEqual(computeDerived(g.getSnapshot().state), fresh());
+  const s = g.getSnapshot().state, b = Object.values(s.buildings).find(x => x.type === 'fr_trad');
+  g.dispatch({ type: CMD.Demolish, id: b.id });
+  assert.deepEqual(computeDerived(g.getSnapshot().state), fresh(), 'after a demolition');
+  g.dispatch({ type: CMD.BuildRoad, points: [{ x: -11, z: -11.4 }, { x: 11, z: -11.4 }], style: 'road_dirt' });
+  assert.deepEqual(computeDerived(g.getSnapshot().state), fresh(), 'after a new road');
+});

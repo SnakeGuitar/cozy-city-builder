@@ -83,5 +83,6 @@ export function applyDayLight(view, tt, materials, focus) {
   const az = .9 + tt * 2.2, el = night > .5 ? .9 : .75 + Math.sin(tt * Math.PI) * .25;
   sun.position.set(focus.x + Math.cos(az) * 20, Math.sin(el) * 26, focus.z + Math.sin(az) * 20); sun.target.position.copy(focus);
   materials.window.emissiveIntensity = night * 1.15; materials.lamp.emissiveIntensity = .15 + night * 1.5; materials.glow.opacity = night * .85;
+  materials.glow.visible = night > .01; // in daylight the glow sprites cost draw calls for nothing
   return { night, tint, tintOpacity };
 }

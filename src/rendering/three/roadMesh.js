@@ -171,17 +171,46 @@ function decoProto(kind, v) {
     else { for (let i = 0; i < 4; i++) k.m(null, new THREE.ConeGeometry(.012, .07 + (i % 2) * .03, 4), M.leaf(i % 2 ? C.leafD : C.leaf), (i - 1.5) * .02, .03, (i % 2) * .015, 0, (i - 1.5) * .3, (i - 1.5) * .2); }
     o = bake(k);
   }
+  o.traverse(c => { c.userData.shared = true; }); // clones share this geometry: owners never dispose it
   decoCache.set(key, o); return o;
 }
 
+/**
+ * Bakes a batch into one geometry per material (non-indexed, ready to merge), one outline geometry and its prop spots.
+ * The batch's own geometries are disposed; the piece owns the result (disposePiece releases it).
+ */
+export function bakePiece(batch, mergeGeometries) {
+  const byMat = new Map();
+  const edges = batch.outlined.length ? mergeGeometries(batch.outlined.map(g => new THREE.EdgesGeometry(g, 40))) : null;
+  for (const [mat, list] of batch.byMat) {
+    const flat = list.map(g => g.index ? g.toNonIndexed() : g);
+    byMat.set(mat, flat.length === 1 ? flat[0] : mergeGeometries(flat));
+    for (const g of new Set([...list, ...flat])) if (g !== byMat.get(mat)) g.dispose();
+  }
+  return { byMat, edges, deco: batch.deco };
+}
+export function disposePiece(piece) { for (const g of piece.byMat.values()) g.dispose(); piece.edges?.dispose(); }
+
+/**
+ * Merges baked pieces into a group: one mesh per material, one outline mesh, roadside props (clones sharing the
+ * cached prop geometry). Only the merged meshes are marked `owned`; disposeGroup releases exactly those.
+ */
+export function assemblePieces(pieces, mergeGeometries, edgeMat) {
+  const group = new THREE.Group(), byMat = new Map(), edges = [];
+  for (const p of pieces) {
+    if (p.edges) edges.push(p.edges);
+    for (const [mat, g] of p.byMat) { if (!byMat.has(mat)) byMat.set(mat, []); byMat.get(mat).push(g); }
+  }
+  const own = o => { o.userData.owned = true; group.add(o); return o; };
+  if (edges.length) own(new THREE.LineSegments(edges.length === 1 ? edges[0].clone() : mergeGeometries(edges), edgeMat));
+  for (const [mat, list] of byMat) own(new THREE.Mesh(list.length === 1 ? list[0].clone() : mergeGeometries(list), mat)).receiveShadow = true;
+  for (const p of pieces) for (const d of p.deco) { const o = decoProto(d.kind, d.v).clone(); o.position.set(d.x, d.y + .02, d.z); o.rotation.y = d.ry; group.add(o); }
+  return group;
+}
+export function disposeGroup(group) { for (const o of group.children) if (o.userData.owned) o.geometry.dispose(); }
+
 /** Turns a batch into meshes (one per material, merged) plus roadside props. */
 export function finishBatch(batch, mergeGeometries, edgeMat) {
-  const group = new THREE.Group();
-  if (batch.outlined.length) group.add(new THREE.LineSegments(mergeGeometries(batch.outlined.map(g => new THREE.EdgesGeometry(g, 40))), edgeMat));
-  for (const [mat, list] of batch.byMat) {
-    const m = new THREE.Mesh(mergeGeometries(list.map(g => g.index ? g.toNonIndexed() : g)), mat); m.receiveShadow = true; group.add(m);
-    for (const g of list) g.dispose();
-  }
-  for (const d of batch.deco) { const o = decoProto(d.kind, d.v).clone(); o.position.set(d.x, d.y + .02, d.z); o.rotation.y = d.ry; group.add(o); }
-  return group;
+  const piece = bakePiece(batch, mergeGeometries), group = assemblePieces([piece], mergeGeometries, edgeMat);
+  disposePiece(piece); return group;
 }
