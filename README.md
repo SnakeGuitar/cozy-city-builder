@@ -8,6 +8,19 @@ The game opens on a main menu (continue, new game, sandbox, settings, language, 
 on an empty map: Limoni, the town's fox mascot, guides you to place the free café, a path and your first home.
 Sandbox mode has everything unlocked and nothing costs; it is saved apart from the normal game.
 
+What you can do:
+
+- **Build** homes, shops, industry and services from a catalogue of styles; upgrade them through **three tiers**.
+- **Place on a grid or freely**: free mode accepts any position and angle, with snaps to grid steps, road edges and
+  neighbours (G switches modes).
+- **Draw streets** in seven styles as straight lines, L shapes or curves, with a full preview of the price, slope,
+  collisions and whether it reaches the café; edit curves afterwards, demolish piece by piece, undo and redo.
+- **Start on generated maps**: biomes (plains, forest, coast, autumn, snow, desert, mixed …) from a seed and a size.
+- **Design your own buildings** in the editor: walls, roofs, doors, windows, awnings, balconies, signs and garden
+  pieces, with gizmos, snapping, undo/redo, checks that explain how to fix problems and versioned designs.
+- **Reuse villas**: frame an arrangement of homes, gardens and paths, save it, and build, move, turn, update or
+  demolish copies as one piece.
+
 ## Controls
 
 | Action | Mouse / keyboard | Touch |
@@ -18,7 +31,12 @@ Sandbox mode has everything unlocked and nothing costs; it is saved apart from t
 | Tilt | Shift + wheel (also changes with orbit drags) | — |
 | Isometric ⇄ 3D perspective | V or the cube button | Cube button |
 | Reset camera | C or the target button | Target button |
-| Build / place | Pick in the catalogue, click the map; R turns the building | Tap |
+| Build / place | Pick in the catalogue, click the map; R / Shift+R turn, Ctrl + wheel turns in free mode, G grid ⇄ free | Tap, then ✓ in free mode |
+| Place without a pointer | WASD / arrows aim the preview at the middle of the view, Enter places | — |
+| Streets (free mode) | Drag a straight line, an L (F flips the corner) or a curve; Ctrl+Z / Ctrl+Y undo and redo | Drag, then ✓ |
+| Villas | *My designs → New villa from town*, drag a rectangle; place copies from *My designs* | Same |
+| Building editor | *My designs → New design* or ✎ on a design; keys listed in the editor and in `docs/blueprints.md` | Tap to select, drag gizmos |
+| Performance overlay | F3 | — |
 | Paths, demolition | Click and drag | Hold a finger briefly, then drag |
 | Cancel / menu | Right-click or Escape (Escape again opens the pause menu) | Menu button |
 | Pause, speed | Space, 1, 2, 3 | Top bar |
@@ -82,22 +100,25 @@ Bundles everything with esbuild and writes two self-contained pages:
 ```
 src/
   core/          game rules — plain data and pure functions, no engine or browser APIs
-    config/      catalogue (DEFS), economy constants, goals, world size, new-game layout
-    domain/      state shape, buildings, grid, footprints, placement rules
+    config/      catalogue (DEFS) and tiers, biomes, module library, economy, goals, world, rules per mode
+    domain/      state, geometry (OBB), space (placement, spatial hash), snaps, road graph and planner,
+                 terrain, blueprints, villas
     simulation/  roads, effects, housing, jobs, utilities, services, wellbeing, commerce, industry, finance, demand
     goals/       goal metrics, rewards, unlocks
-    config/rules.js GameRules for 'normal' and 'sandbox' (costs, money, unlocks, goals, tutorial)
-    commands/    PlaceBuilding, MoveBuilding, RotateBuilding, DemolishBuilding, SetSpeed, TogglePause, TutorialSignal
+    commands/    every player command, atomic group operations, dry runs
     tutorial/    first-steps tutorial (which line the mascot should say)
     mascot/      advice rules and their rate limits
-    persistence/ save documents, validation, migrations v1 → v2 → v3 → v4
-  application/   createGame() (game controller), navigation (menu states), createApp() (slots, sessions)
-  presentation/  engine-neutral camera model/controller and touch/mouse gesture interpreter
-  rendering/three/ scene, camera, models, building views (Map<id, Object3D>), roads, ambient life, overlays
-  ui/            interaction (tools and selection) and dom/ (menu, Limoni, panels, catalogue, HUD, strings in 5 languages)
+    persistence/ save documents, validation, migrations v1 → v10
+  application/   createGame() (game controller, street undo/redo), navigation, createApp() (slots), the building
+                 editor model, the benchmark town
+  presentation/  engine-neutral camera, gestures, road layout pieces, walkers, view update plans, perf statistics
+  rendering/three/ scene, terrain, models, building/road chunks, custom buildings, villas, editor preview, overlays
+  ui/            interaction (tools and selection) and dom/ (menu, Limoni, panels, catalogue, editor, villa dialog,
+                 HUD, strings in 5 languages)
   platform/web/  localStorage, Web Audio, input, frame loop and bootstrap (main.js)
 tests/           node:test suites and fixtures
-docs/            architecture.md, godot-migration.md
+tools/           bench.mjs (simulation benchmark), fixture generators
+docs/            architecture.md, blueprints.md, villas.md, performance.md, godot-migration.md
 ```
 
 ## Adding a building
@@ -116,4 +137,6 @@ unless the building introduces a new kind of rule. See `docs/architecture.md`.
 Two independent slots in `localStorage`: `villa-limon` (normal game) and `villa-limon-sandbox`. The active game
 saves every 5 seconds, after changes, when you return to the main menu and when the page closes. Each save records
 its mode and its camera. Global settings (language, sound, mascot, camera smoothing) live in `villa-limon-settings`.
-Saves are versioned JSON (`v: 4`); v3, v2 and Strawberry Borough (v1) saves migrate on load without losing buildings.
+Saves are versioned JSON (`v: 10`); every older version, back to Strawberry Borough (v1), migrates on load without
+losing buildings (see the table in `docs/architecture.md`). Drafts of the building editor are autosaved under
+`villa-limon-blueprint-draft` and offered back after a crash.

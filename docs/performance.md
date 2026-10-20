@@ -45,9 +45,30 @@ Benchmark town on a 40×40 plains map (399 buildings, 71 road segments), Chromiu
 An incremental road update was checked against a cold rebuild after demolitions, undo and a new road: the merged
 geometry per material is identical (vertex counts and content hashes).
 
+### Big town with custom buildings and villas
+
+`node tools/bench.mjs` (the last line builds the same 40×40 plains town with three saved designs and a hedged villa):
+
+| Town | Buildings | Custom | Villas | Build | Snapshot | Tick | Save | Load |
+|---|---|---|---|---|---|---|---|---|
+| plains | 399 | 0 | 0 | 597 ms | 0.75 ms | 0.74 ms | 0.4 ms (89 KB) | 5 ms |
+| plains + designs | 352 | 15 | 17 (68 buildings) | 468 ms | 0.72 ms | 0.77 ms | 0.8–1.1 ms (88 KB) | 4–5 ms |
+
+In the browser (`__villa.bench({ designs: true })`, background preview pane, so frame times are throttled):
+
+| Measure | Value |
+|---|---|
+| Draw calls · triangles | 3,074 · 1.16 M (each custom design version is one cached model shared by its buildings) |
+| Moving and turning a villa (4 buildings and its hedge) | 12 ms for the whole event batch (fences 9.7 ms, roads 1 ms) |
+| Demolishing a custom building | 4.7 ms |
+| Road edit | ~1–3 ms (incremental pieces) |
+| Placement previews of villas | one dry run per pose change (memoised), never per frame |
+
 ## Known bottlenecks
 
 - ~210 distinct materials remain after chunk merging; consolidating them (vertex colours, a texture atlas) would cut
   draw calls further.
 - The scenery refresh (terrain props hidden under new roads and buildings) still walks the whole map: 3–7 ms.
 - Window glow meshes are not batched yet (hidden by day).
+- Fences of all placed villas are redrawn together on any group event (~10 ms with 17 villas); per-group caching would make it incremental.
+- Custom-building parts use one material per colour, which adds draw calls when many designs are on screen.

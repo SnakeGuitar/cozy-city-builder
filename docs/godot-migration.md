@@ -117,6 +117,22 @@ These parts are Three.js-specific and are rebuilt, not ported:
 - **Picking**: raycast from the `Camera3D` (orthographic, isometric) to the ground plane and to building colliders.
 - **Thumbnails**: a `SubViewport` render per type, or pre-rendered images.
 
+## 7. Newer systems and their Godot counterparts
+
+| Here | In Godot |
+| --- | --- |
+| Free placement: `position` + `rotation`, OBB collisions in `domain/geometry.js`, spatial hash | Port as-is (plain math). Use `Area3D`/shape queries only for picking, never as the rule. |
+| Road graph (`state.roads`: nodes, segments, control points; Catmull-Rom curves) | Keep the graph as data. Draw each chain as a `Path3D` whose `Curve3D` gets the sampled points, and extrude the profile with `CSGPolygon3D` (path mode) for prototypes or an `ArrayMesh` built with `SurfaceTool` per spatial chunk for the shipping version — the same keyed pieces as `presentation/roadLayout.js` `roadPieces`, so edits rebuild only changed chunks. |
+| Street planner (`planTrace`), undo/redo snapshots | Port as-is; `RestoreRoads` maps to replacing the graph resource and emitting a signal. |
+| Terrain (`map.terrain`: height grid, cell strings) | A `MeshInstance3D` built from the height grid (or a `HeightMapShape3D` for collisions); flora as `MultiMeshInstance3D` per kind; water as one plane with a shader. The generator stays in the core, so maps are identical. |
+| Tiers (`DEFS[type].tiers`, `modelIdOf`) | One `PackedScene` per model id (`bakery_t2.tscn`); the tier number is an exported property. |
+| Chunk batching of buildings and roads | `MultiMeshInstance3D` for repeated models, or merged `ArrayMesh` per chunk and material, rebuilt when a chunk's member set changes. |
+| Blueprints (`domain/blueprint.js`) | Keep the JSON. A `BlueprintBuilder` script instantiates one `Node3D` per part (module scene + size via `scale` or a parametric mesh) at `resolveParts` poses, then bakes the result into a cached `PackedScene` or `ArrayMesh` per `id@version`. |
+| Building editor | A separate scene with its own `Camera3D` and `SubViewport`; Godot has no runtime transform gizmo, so port `TransformControls` behaviour as a small gizmo scene (three arrows, a ring, three handles) driving `offsetForPose`; the editor model (`application/blueprintEditor.js`) ports as-is, its autosave goes through `FileAccess` in `user://`. |
+| Villas and groups (`domain/villa.js`) | Data stays as is; a placed group is a `Node3D` parent of its building nodes (also tagged with `add_to_group(group_id)`), fences as one merged mesh per group. Atomic commands keep their scratch-copy approach (`state.duplicate(true)`). |
+| Events | Signals with the same names (`villa_placed`, `group_moved`, `blueprint_saved` …). |
+| Performance overlay (`presentation/perf.js`) | Feed the same summary from `Performance.get_monitor` and `Time.get_ticks_usec`. |
+
 ## Suggested order
 
 1. Port `core/` and `application/` and pass the characterization and unit tests headless.

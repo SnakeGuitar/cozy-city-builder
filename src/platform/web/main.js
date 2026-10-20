@@ -130,4 +130,4 @@ requestAnimationFrame(frame);
 // small debugging handle (read-only use from the console and the browser checks)
 window.__villa = { app, game, view, camera, interaction, settings, ui, perf, togglePerf, editorUI, openEditor,
   /** Fills the current game with the benchmark town (use in a sandbox): returns what was built. */
-  bench: () => buildBenchmarkTown(game) };
+  bench: opts => buildBenchmarkTown(game, opts) };

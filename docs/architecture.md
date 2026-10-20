@@ -20,15 +20,23 @@ Plain data and functions. Everything here could be ported line by line to anothe
 
 | Module | Responsibility |
 | --- | --- |
-| `config/catalog.js` | `DEFS` (building types, costs, jobs, capacities, effects), kinds, categories, utility use, economy constants, base unlocks. |
-| `config/goals.js` | Goals as data: `{ id, reward, unlock, metric, target }`. |
-| `config/world.js` | Grid size, day length, tick length, speeds, the new-game layout. |
-| `domain/state.js` | The state shape and building records. |
-| `domain/grid.js` | Tiles, footprints, `canPlace`, occupy/release, `rectDist`, adjacency, `autoFace`. |
-| `simulation/*` | One small system per concern (below). |
+| `config/catalog.js` | `DEFS` (building types and street styles, costs, jobs, capacities, effects, tier tables), kinds, categories, economy constants, base unlocks; `tierStats`, `investedIn`. |
+| `config/tiers.js` | Upgrade ladders (three tiers per upgradable kind) built into `DEFS[type].tiers`. |
+| `config/biomes.js` | Biomes, map presets and sizes, generator version, slope and grade limits. |
+| `config/modules.js` | Module library for custom buildings (sizes, anchors, prices, complexity) and blueprint limits. |
+| `config/goals.js`, `world.js`, `rules.js` | Goals as data; tick/day lengths and the new-game layout; `GameRules` per mode. |
+| `domain/state.js` | The state shape, building records, `statsOf`, `bumpRev`. |
+| `domain/geometry.js` | Oriented boxes (OBB), separating-axis overlap, angles and quarter turns. |
+| `domain/space.js` | Footprints, map bounds, the spatial hash, `canPlace`, `autoFace`, grid quantisation (`tileToPose`). |
+| `domain/snap.js` | Free-placement snaps: grid steps, road edges, neighbouring buildings, angle steps. |
+| `domain/roads.js`, `roadQuery.js`, `roadPlan.js` | The road graph (nodes, segments with control points), curves, queries, and the street planner (`planTrace`: straight, L and curved traces, snapping, splits, crossings, slope, collisions, price). |
+| `domain/terrain.js` | Seeded terrain: heights, water, rocks, biomes and decoration; `heightAt`, `terrainBlocker`. |
+| `domain/blueprint.js` | Parametric, versioned custom-building designs (see `docs/blueprints.md`). |
+| `domain/villa.js` | Reusable, versioned compositions and placed groups (see `docs/villas.md`). |
+| `simulation/*` | One small system per concern (below); `derive.js` caches structure per revision. |
 | `goals/goals.js` | Goal metrics, progress, rewards, unlocked types. |
-| `commands/commands.js` | Player commands and every validation they need. |
-| `persistence/save.js` | Save documents, migrations, validation. |
+| `commands/commands.js` | Player commands and every validation they need; atomic multi-step operations; `dryRun`. |
+| `persistence/save.js` | Save documents, migrations v1 → v10, validation of every field. |
 | `util/random.js` | Deterministic random numbers (`nextRandom`, `mulberry32`, `hashString`). |
 
 ### State
@@ -37,21 +45,24 @@ One JSON-friendly object:
 
 ```js
 {
-  coins, population, employed, demand: { r, c, i },
-  clock: { time, day, speed, paused },
-  goalsDone: ['g1'], nextId, rngSeed,
-  buildings: { [id]: { id, type, x, y, r, seed, well, open } },
-  grid: number[]            // tile → building id, always derived from buildings
+  mode, coins, population, employed, demand: { r, c, i },
+  clock: { time, day, speed, paused }, goalsDone, nextId, rngSeed, tutorial,
+  buildings: { [id]: { id, type, tier, position: { x, z }, rotation, seed, well, open, blueprint?, group? } },
+  roads: { nodes, segments, nextNodeId, nextSegmentId },        // the road graph
+  map: { size, seed, generatorVersion, biomePreset, terrain },   // terrain stored with the game
+  blueprints, nextBlueprintId, villas, nextVillaId, groups, nextGroupId,
+  spatial, rev                                                   // derived: spatial hash, structural revision
 }
 ```
 
-- **Persistent**: everything above is saved, except `clock.paused` and `grid` (rebuilt on load).
+- **Persistent**: everything above is saved, except `clock.paused`, `spatial` and `rev`.
 - **Simulation memory**: `well` and `open` on a building are lagged values the next tick depends on
   (homes are filled in order of last tick's wellbeing; a shop that closed keeps its jobs closed until the next tick).
 - **Derived**: everything the UI shows (occupancy, staffing, coverage, income, demand targets and reasons)
-  lives in the derived snapshot and is never stored.
-- **Presentation**: tool, selection, camera, language, tutorial progress and "new" badges belong to the front end
-  and are saved in the save's separate `ui` section.
+  lives in the derived snapshot and is never stored. `rev` grows on every structural change, so caches of the road
+  network and effects (`simulation/derive.js`) know when they are stale.
+- **Presentation**: tool, selection, camera, placement preferences, catalogue tab and "new" badges belong to the
+  front end and are saved in the save's separate `ui` section.
 
 A building record never holds engine objects. The renderer keeps its own `Map<BuildingId, view>`.
 
@@ -84,19 +95,26 @@ Tests prove that computing a snapshot leaves the state byte-for-byte unchanged.
 ### Commands and events
 
 ```js
-game.dispatch({ type: 'PlaceBuilding', buildingType: 'fr_trad', x: 8, y: 14, r: 0, autoFace: true })
-game.dispatch({ type: 'MoveBuilding', id, x, y, r, autoFace })
-game.dispatch({ type: 'RotateBuilding', id })
-game.dispatch({ type: 'DemolishBuilding', id })
-game.dispatch({ type: 'SetSpeed', speed: 2 })
-game.dispatch({ type: 'TogglePause' })
+game.dispatch({ type: 'PlaceBuilding', buildingType: 'fr_trad', position: { x, z }, rotation, autoFace: true })
+game.dispatch({ type: 'PlaceBuilding', buildingType: 'fr_trad', x: 8, y: 14, r: 0 })      // grid form, still accepted
+game.dispatch({ type: 'PlaceBuilding', blueprint: { id: 'bp1' }, position, rotation })      // a custom building
+game.dispatch({ type: 'MoveBuilding', id, position, rotation })    // also RotateBuilding { id, by }, DemolishBuilding { id }
+game.dispatch({ type: 'UpgradeBuilding', id })                     // one tier up
+game.dispatch({ type: 'BuildRoad', points, style, shape: 'polyline' | 'curve' })  // atomic street trace
+game.dispatch({ type: 'DemolishRoad', segmentId })                 // also EditRoad, RestoreRoads (undo/redo)
+game.dispatch({ type: 'SaveBlueprint', blueprint })                // also DeleteBlueprint, RemodelBuilding
+game.dispatch({ type: 'PlaceVilla', villa: { id }, position, rotation })  // also SaveVilla, DeleteVilla, MoveGroup,
+                                                                   // UpdateGroup, DemolishGroup, Ungroup
+game.dispatch({ type: 'SetSpeed', speed: 2 })                      // also TogglePause, TutorialSignal
 ```
 
 A command returns `{ ok, reason?, events }`. Rejections (`outside`, `blocked`, `notEnough`, `locked`, `unique`,
 `cafeHeart`, `missing`, `badSpeed`, …) cost nothing and also emit `command_rejected`.
 
 Events are plain objects, drained with `game.drainEvents()`:
-`building_placed`, `building_moved`, `building_rotated`, `building_removed`, `coins_changed`,
+`building_placed`, `building_moved`, `building_rotated`, `building_removed`, `building_upgraded`, `building_remodeled`,
+`road_built`, `road_removed`, `road_edited`, `roads_replaced`, `road_history`, `blueprint_saved`, `blueprint_deleted`,
+`villa_saved`, `villa_deleted`, `villa_placed`, `group_moved`, `group_updated`, `group_removed`, `group_ungrouped`, `coins_changed`,
 `population_changed`, `income_earned`, `goal_completed`, `types_unlocked`, `clock_changed`, `day_changed`,
 `tick`, `command_rejected`, `state_replaced`.
 The renderer, the DOM UI and the audio react to them; none of them carries engine objects or callbacks.
@@ -118,23 +136,72 @@ The renderer, the DOM UI and the audio react to them; none of them carries engin
 
 ## Front end (web)
 
-- `rendering/three/` — procedural watercolour textures and models (`art.js`, `models/`), scene and light cycle,
-  building views keyed by id, merged road mesh, walkers/smoke/petals, overlays and ghost previews, thumbnails.
-  Visual randomness stays here.
-- `ui/interaction.js` — tools (explore, build, move, demolish), selection and previews. It only *requests*
+- `rendering/three/` — procedural watercolour textures and models (`art.js`, `models/`, tier dressing), scene and
+  light cycle, terrain mesh and instanced flora, building views keyed by id and merged per chunk, the road network
+  drawn from keyed pieces merged per chunk, custom-building models (`blueprintModel.js`), villa fences and previews
+  (`villaView.js`), the building editor's preview (`editorView.js`), walkers/smoke/petals, overlays, thumbnails.
+  Visual randomness stays here. `presentation/viewUpdates.js` turns each event batch into a plan of view updates.
+- `ui/interaction.js` — tools (explore, build, move, demolish, street drawing and editing, villa framing, placing
+  and moving), grid and free placement, selection and previews. It only *requests*
   changes through commands. Moving is a preview until the drop; the building keeps working meanwhile.
-- `ui/dom/` — HUD, catalogue with tradition/era filters, selection panel, city panel, goals, hints, settings,
-  world labels and the five string tables.
+- `ui/dom/` — HUD, catalogue with tradition/era filters and "My designs", selection panel (tiers, designs, villas),
+  placement bar, street panel, city panel, goals, settings, the building editor (`editor.js`), the villa dialog
+  (`villaDialog.js`), world labels and the five string tables.
 - `platform/web/` — adapters: `storage.js` (localStorage), `savegame.js`, `audio.js` (Web Audio, starts after a
   user gesture), `input.js` (mouse, touch, wheel, keys) and `main.js` (bootstrap and the `requestAnimationFrame` loop).
 
 ## Saves
 
-`{ v: 3, game: { …core state… }, ui: { lang, muted, tips, tut, tab, filt, newT, cam } }`.
-`core/persistence/save.js` migrates step by step (`1 → 2 → 3`) and then validates every field:
-unknown types, non-integer or out-of-map coordinates, overlapping footprints, bad rotations, duplicate ids,
-non-finite numbers and a second café are dropped or normalised with a warning; a missing café is restored.
-The `ui` section is opaque to the core and normalised by `ui/dom/index.js`.
+`{ v: 10, mode, game: { …core state… }, ui: { camera, tab, filt, newT, place } }`. `core/persistence/save.js`
+migrates step by step and then validates every field; its header lists what each version added:
+
+| Version | Added |
+| --- | --- |
+| v4 | explicit mode, tutorial progress |
+| v5 | building tiers |
+| v6 | continuous positions and rotations (grid cells converted exactly) |
+| v7 | the road graph (road cells became nodes and segments) |
+| v8 | the map: size, seed, generator version, biome preset and stored terrain |
+| v9 | the blueprint library and custom-building references |
+| v10 | villas and placed groups |
+
+Unknown types, non-finite numbers, overlapping footprints, duplicate ids, damaged terrain, broken road graphs,
+invalid designs and villas, and dangling references are dropped or normalised with a warning; a building whose
+design or villa is gone keeps standing as an ordinary building. Fixtures from older versions
+(`tests/fixtures/save-v4.json`, the v1–v3 tests) must load with the same buildings. The `ui` section is opaque to the
+core and normalised by `ui/dom/index.js`.
+
+## Buildings: free placement and tiers
+
+Buildings stand at a continuous `position` with any `rotation`; collisions use oriented footprints (separating-axis
+test) through a spatial hash. The grid mode is a quantisation of the same thing (`tileToPose` / `snapToGrid`), so both
+modes share one rule set; distances between lots reproduce the old tile metric exactly. Free placement offers grid
+steps, road-edge and neighbour snaps and configurable angle steps. Upgradable kinds have three tiers
+(`config/tiers.js`): `UpgradeBuilding` keeps the id, position and memory and changes only the tier, whose numbers
+come from `tierStats`; the renderer shows a different model per tier.
+
+## Roads: graph, planner and street tool
+
+Roads are nodes and segments with control points (curves are centripetal Catmull-Rom). `planTrace` plans a whole
+stroke — straight, L or curve — on a copy of the graph: it snaps ends to nodes and segments, splits segments where it
+joins them, adds junctions at crossings, rejects collisions with buildings, water, rocks and steep grades, and prices
+the result. `BuildRoad` adopts the plan as one operation (one price, one undo step). `DemolishRoad` refunds half of
+what that piece cost; `EditRoad` moves control points. The game keeps an undo/redo stack of road operations as
+graph snapshots (`RestoreRoads`). Connectivity walks the graph from the café; a building is connected when its
+footprint is within reach of a main-network piece. The grid street tool still builds cells (nodes linked to their
+four neighbours), so old towns migrate unchanged.
+
+## Terrain and biomes
+
+`createMap({ preset, seed, size })` generates heights (fBm noise with a slope-relaxation pass and a flat café
+plateau), water by target cover, clustered rocks and biome cells; the result is stored in the save, so a map never
+changes when the generator does (`generatorVersion`). The classic preset is the old flat meadow. Placement and roads
+ask `terrainBlocker` and the maximum road grade.
+
+## Performance
+
+See `docs/performance.md`: structural caches per revision, chunk batching of buildings and roads, incremental road
+pieces, view update plans, ownership-based disposal, the F3 overlay and the benchmark towns.
 
 ## Game rules and modes
 
@@ -182,7 +249,7 @@ Events are plain: `{ type: 'mascot_message_requested', messageId, mood, params, 
 
 ## Navigation and save slots
 
-`application/navigation.js` is a pure reducer over `main_menu · playing · paused · settings · credits` plus an optional
+`application/navigation.js` is a pure reducer over `main_menu · playing · paused · settings · credits · setup · editor` plus an optional
 confirmation dialog. `simulationRunning(nav)` is the one check the frame loop makes; `worldVisible(nav)` decides
 whether the 3D town is drawn. No other module asks which menu is open.
 
@@ -206,13 +273,8 @@ The camera is saved in each slot's `ui.camera`; v1–v3 `[x, z, yaw, zoom]` arra
 Tests check that a screen point projected from a tile ray-casts back to that tile, in orthographic, perspective and
 mid-transition views, for several angles, and that placing through that tile puts the building there.
 
-## Saves (v4)
+## The v3 → v4 step
 
-```
-{ v: 4, mode: 'normal' | 'sandbox',
-  game: { mode, tutorial: { step, signals }, coins, population, employed, demand, clock, goalsDone, nextId, rngSeed, buildings: [...] },
-  ui:   { camera, tab, filt, newT } }
-```
 Migration `3 → 4`: mode `normal`, tutorial done, `g0`/`g0b` done. Language, sound and the old "tips" flag move to the
 global settings key the first time the new version runs. Repair policy: saves up to v3 always had a café, so one
 missing is restored; a v4 game without a café is a legitimate new town and is never touched.
@@ -252,7 +314,9 @@ Each change is deliberate and covered by tests.
 
 - The simulation is aggregated: no individual residents, commutes or pipes.
 - Fire stations count residents rather than buildings.
-- `rendering/three` (except the camera rig) and `ui/dom` are tested in the browser by hand, not automatically.
+- `rendering/three` (except the camera rig) and `ui/dom` are tested in the browser by hand, not automatically;
+  their engine-neutral parts (road pieces, view update plans, the editor model) have unit tests.
+- Custom buildings use their base type's square footprint; villas are captured rectangles (see the two docs).
 - The twist gesture is applied directly as yaw; there is no two-finger tilt gesture on touch screens.
 - `src/index.html` still carries all styles inline; they could move to a stylesheet if it grows.
-- Three.js comes from a CDN import map; an offline build would need it vendored or bundled.
+- Three.js is bundled into the single-file build; the development page loads it from `node_modules` by import map.
