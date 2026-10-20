@@ -70,7 +70,8 @@ buildings.
 
 ## Rendering
 
-`rendering/three/villaView.js` draws every placed villa's fence (merged per material, redrawn only on group events)
+`rendering/three/villaView.js` draws every placed villa's fence (baked per group and cached until its style or runs
+change, then merged per material; only group events touch it)
 and a whole-villa preview (models, path ribbons, fence) used for the placement ghost, the move ghost and catalogue
 pictures.
 

@@ -1,4 +1,4 @@
-// Villas in the 3D view: the fences of placed villas (one merged mesh per material, redrawn when groups change) and
+// Villas in the 3D view: the fences of placed villas (cached per group, merged into one mesh per material) and
 // a whole-villa preview (buildings, private paths and fence in the villa's own frame) for placing, moving and
 // catalogue pictures. Rendering only; the core decides what a villa contains.
 import * as THREE from 'three';
@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { M, C } from './art.js';
 import { getProto, variantOf } from './models/index.js';
 import { blueprintProto } from './blueprintModel.js';
+import { layered } from './texArrays.js';
 import { roadPlanPreview } from './roads.js';
 import { DEFS } from '../../core/config/catalog.js';
 import { getVilla, fenceRuns, toWorld, groupsOf } from '../../core/domain/villa.js';
@@ -39,21 +40,37 @@ function mergeInto(group, byMat) {
   for (const [mat, list] of byMat) { const m = new THREE.Mesh(mergeGeometries(list), mat); m.castShadow = m.receiveShadow = true; m.userData.owned = true; group.add(m); list.forEach(g => g.dispose()); }
 }
 
-/** Fences of every placed villa, redrawn as a whole when groups change (a handful of boxes per villa). */
+/**
+ * Fences of every placed villa. Each group's fence is baked once — its boxes merged per material, plain materials
+ * moved to the shared texture arrays — and kept while its style and runs in world space stay the same; a group event
+ * rebakes only the groups that changed, then concatenates the cached fences into one mesh per material.
+ */
 export function createVillaViews(scene) {
-  let root = null;
+  const root = new THREE.Group(), baked = new Map(); // group id → { sig, byMat: Map<material, geometry> }
+  const stats = { groups: 0, built: 0 };
+  const release = byMat => { for (const g of byMat.values()) g.dispose(); };
+  let ground = null; // the map the cached heights belong to
+  scene.add(root);
   return {
+    stats,
     rebuild(state, heightAt = () => 0) {
-      if (root) { scene.remove(root); root.traverse(o => { if (o.userData.owned) o.geometry.dispose(); }); }
-      root = new THREE.Group(); const byStyle = new Map();
+      if (ground !== state.map) { for (const b of baked.values()) release(b.byMat); baked.clear(); ground = state.map; root.userData.drawn = false; }
+      const live = new Set(); let built = 0, removed = 0;
       for (const g of Object.values(groupsOf(state))) {
         const v = g.fence && getVilla(state, g.villa); if (!v) continue;
-        const def = { ...v, fence: g.fence }, pose = { position: g.position, rotation: g.rotation };
-        if (!byStyle.has(g.fence.style)) byStyle.set(g.fence.style, new Map());
-        for (const r of fenceRuns(def)) fenceRun(byStyle.get(g.fence.style), g.fence.style, toWorld(pose, r.a), toWorld(pose, r.b), heightAt);
+        const pose = { position: g.position, rotation: g.rotation }, runs = fenceRuns({ ...v, fence: g.fence }).map(r => [toWorld(pose, r.a), toWorld(pose, r.b)]);
+        const sig = g.fence.style + JSON.stringify(runs), old = baked.get(g.id); live.add(g.id);
+        if (old?.sig === sig) continue;
+        if (old) release(old.byMat);
+        const byMat = new Map(); for (const [a, b] of runs) fenceRun(byMat, g.fence.style, a, b, heightAt);
+        baked.set(g.id, { sig, byMat: layered(new Map([...byMat].map(([mat, list]) => { const m = mergeGeometries(list); list.forEach(x => x.dispose()); return [mat, m]; }))) }); built++;
       }
-      for (const byMat of byStyle.values()) mergeInto(root, byMat);
-      scene.add(root);
+      for (const [id, b] of baked) if (!live.has(id)) { release(b.byMat); baked.delete(id); removed++; }
+      Object.assign(stats, { groups: baked.size, built });
+      if (!built && !removed && root.userData.drawn) return;
+      for (const m of root.children) m.geometry.dispose(); root.clear(); root.userData.drawn = true;
+      const all = new Map(); for (const b of baked.values()) for (const [mat, g] of b.byMat) { if (!all.has(mat)) all.set(mat, []); all.get(mat).push(g); }
+      for (const [mat, list] of all) { const m = new THREE.Mesh(list.length === 1 ? list[0].clone() : mergeGeometries(list), mat); m.castShadow = m.receiveShadow = true; root.add(m); }
     },
   };
 }

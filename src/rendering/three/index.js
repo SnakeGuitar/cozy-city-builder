@@ -54,6 +54,8 @@ export function createThreeView(container, { time = (name, fn) => fn(), reducedM
     buildingStats: () => buildings.stats,
     /** Road pieces cached and chunks merged by the last road update (how incremental it was). */
     roadStats: () => roads.stats,
+    /** Villa fences cached and rebaked by the last group update. */
+    villaStats: () => villas.stats,
     /** Renderer counters for the last frame (draw calls, triangles) and live GPU resources. */
     info() { const i = sc.renderer.info; return { calls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries, textures: i.memory.textures }; },
     /** Rebuild everything from a snapshot (start, new game, load). */

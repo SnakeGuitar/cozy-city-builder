@@ -92,6 +92,7 @@ The editor is a navigation screen (`'editor'`): the town is paused and not drawn
 
 `rendering/three/blueprintModel.js` draws each module with the same modelling kit as the catalogue buildings, bakes a
 saved version once (merged per material) and caches it by `id@version`; every building of that version shares it.
+Its colours cost no extra draw calls once built: the town's chunks draw plain materials from shared texture arrays.
 Thumbnails for the catalogue's "My designs" tab come from a small on-demand renderer that is released when idle.
 
 ## Known limits

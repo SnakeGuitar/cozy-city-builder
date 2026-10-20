@@ -1,15 +1,17 @@
 // Building views: Map<BuildingId, view>. Simulation records never hold Three.js objects; this module does.
 //
 // Batching: a settled building (not animating, hidden or selected) is drawn as part of its chunk — all settled
-// buildings in an 8 × 8 area merged into one mesh per material (plus one for outlines). Its own meshes stay in the
-// scene, invisible, for picking. Any change to a building (placed, moved, upgraded, removed, selected) marks its
-// chunk dirty; dirty chunks are re-merged a few per frame within a small time budget. Tree sway, chimney smoke and
-// lamp glows stay individual so they keep moving.
+// buildings in an 8 × 8 area merged into one mesh per material (plus one for outlines). Plain painted materials of
+// one texture size share a texture array (texArrays.js), so a chunk needs a handful of draws whatever its colours.
+// A batched building's own meshes stay in the scene, invisible, for picking. Any change to a building (placed,
+// moved, upgraded, removed, selected) marks its chunk dirty; dirty chunks are re-merged a few per frame within a
+// small time budget. Tree sway, chimney smoke and lamp glows stay individual so they keep moving.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DEFS, isRoadType } from '../../core/config/catalog.js';
 import { C, M, T, edgeMat, selEdgeMat } from './art.js';
 import { getProto, variantOf } from './models/index.js';
+import { layerOf, setLayer } from './texArrays.js';
 import { buildingCenter } from './coords.js';
 import { footprintOf } from '../../core/domain/space.js';
 
@@ -51,8 +53,10 @@ export function createBuildingViews(scene, ambient, baseOf = () => ({ base: 0, l
     const byMat = new Map();
     v.group.traverse(o => {
       if (!o.userData.batchable) return;
-      const g = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(o.matrixWorld), mat = o.isLineSegments ? edgeMat : o.material;
+      const g = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(o.matrixWorld), lay = !o.isLineSegments && layerOf(o.material);
       if (!o.isLineSegments) for (const n of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(n)) g.deleteAttribute(n);
+      if (lay) setLayer(g, lay.layer); // plain colours share their size's texture array: one draw for all of them
+      const mat = o.isLineSegments ? edgeMat : lay ? lay.material : o.material;
       if (!byMat.has(mat)) byMat.set(mat, []); byMat.get(mat).push(g);
     });
     v.baked = new Map([...byMat].map(([mat, list]) => [mat, list.length === 1 ? list[0] : mergeGeometries(list)]));

@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { edgeMat } from './art.js';
+import { layered } from './texArrays.js';
 import { DEFS } from '../../core/config/catalog.js';
 import { roadPieces } from '../../presentation/roadLayout.js';
 import { createRoadBatch, addPad, addRibbon, finishBatch, bakePiece, disposePiece, assemblePieces, disposeGroup } from './roadMesh.js';
@@ -17,6 +18,7 @@ const drawPad = (batch, p, heightAt) => addPad(batch, { x: p.center.x, y: height
 /**
  * The drawn network, kept in step incrementally: pieces (presentation/roadLayout.js roadPieces) are baked once per
  * key and merged per 8-unit chunk; an edit rebakes only new pieces and re-merges only chunks whose pieces changed.
+ * Plain surfaces and borders share texture arrays (texArrays.js): a chunk draws a few meshes whatever its looks.
  */
 export function createRoadView(scene) {
   const root = new THREE.Group(), pieces = new Map(), chunks = new Map(); // key → baked piece; chunk → { sig, group }
@@ -34,7 +36,7 @@ export function createRoadView(scene) {
       if (ground !== state.map) { clear(); ground = state.map; }
       const want = new Map(); let built = 0, merged = 0;
       for (const p of roadPieces(state)) {
-        if (!pieces.has(p.key)) { const b = createRoadBatch(); if (p.ribbon) drawRibbon(b, p.ribbon, heightAt); else drawPad(b, p.pad, heightAt); pieces.set(p.key, bakePiece(b, mergeGeometries)); built++; }
+        if (!pieces.has(p.key)) { const b = createRoadBatch(); if (p.ribbon) drawRibbon(b, p.ribbon, heightAt); else drawPad(b, p.pad, heightAt); const piece = bakePiece(b, mergeGeometries); piece.byMat = layered(piece.byMat); pieces.set(p.key, piece); built++; }
         if (!want.has(p.chunk)) want.set(p.chunk, []);
         want.get(p.chunk).push(p.key);
       }

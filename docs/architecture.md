@@ -138,7 +138,8 @@ The renderer, the DOM UI and the audio react to them; none of them carries engin
 
 - `rendering/three/` — procedural watercolour textures and models (`art.js`, `models/`, tier dressing), scene and
   light cycle, terrain mesh and instanced flora, building views keyed by id and merged per chunk, the road network
-  drawn from keyed pieces merged per chunk, custom-building models (`blueprintModel.js`), villa fences and previews
+  drawn from keyed pieces merged per chunk, texture arrays shared by plain materials so a chunk draws a few meshes
+  whatever its colours (`texArrays.js`), custom-building models (`blueprintModel.js`), villa fences and previews
   (`villaView.js`), the building editor's preview (`editorView.js`), walkers/smoke/petals, overlays, thumbnails.
   Visual randomness stays here. `presentation/viewUpdates.js` turns each event batch into a plan of view updates.
 - `ui/interaction.js` — tools (explore, build, move, demolish, street drawing and editing, villa framing, placing
