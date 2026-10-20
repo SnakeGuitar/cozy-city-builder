@@ -34,7 +34,18 @@ export function createOverlays(scene) {
   // ---- roads: the plan being drawn (styled ghost over a validity band) and the piece under the demolish cursor
   const bandMat = new THREE.MeshBasicMaterial({ color: '#5f9a2c', transparent: true, opacity: .4, depthWrite: false });
   const hiMat = new THREE.MeshBasicMaterial({ color: '#c8553f', transparent: true, opacity: .45, depthWrite: false, depthTest: false });
-  let plan = null, planBand = null, hi = null, hiKey = '';
+  const selMat = new THREE.MeshBasicMaterial({ color: '#e8c33a', transparent: true, opacity: .5, depthWrite: false, depthTest: false });
+  const handleMat = new THREE.MeshBasicMaterial({ color: '#fff8e6', depthTest: false }), handleOn = new THREE.MeshBasicMaterial({ color: '#4f8a1e', depthTest: false });
+  const ringMat = new THREE.MeshBasicMaterial({ color: '#6a4631', depthTest: false, side: THREE.DoubleSide });
+  const handleGeo = new THREE.SphereGeometry(.13, 14, 10), ringGeo = new THREE.RingGeometry(.15, .2, 24).rotateX(-Math.PI / 2);
+  let plan = null, planBand = null, hi = null, hiKey = '', sel = null, selKey = '', handles = null;
+  /** A road piece as a highlight mesh. */
+  function pieceMesh(state, piece, mat) {
+    const r = roadsOf(state); let m = null;
+    if (piece.segmentId && r.segments[piece.segmentId]) { const s = r.segments[piece.segmentId]; m = new THREE.Mesh(band(segmentPolyline(state, s), s.width / 2 + .05, .06), mat); }
+    else if (piece.nodeId && r.nodes[piece.nodeId]) { const n = r.nodes[piece.nodeId], w = n.width || nodeRadius(state, n.id) * 2; m = new THREE.Mesh(new THREE.PlaneGeometry(w + .1, w + .1).rotateX(-Math.PI / 2), mat); m.position.set(n.position.x, .06, n.position.z); }
+    if (m) { m.renderOrder = 4; scene.add(m); } return m;
+  }
   /** A flat band along a polyline (half width hw), y above the ground. */
   function band(pl, hw, y) {
     const pos = [], idx = [];
@@ -56,14 +67,18 @@ export function createOverlays(scene) {
     },
     hideRoadPlan() { disposeGroup(plan); disposeGroup(planBand); plan = planBand = null; },
     /** Highlights a road piece ({ segmentId } | { nodeId }) for demolition, or clears it with null. */
-    roadHighlight(state, piece) {
-      const key = piece ? JSON.stringify(piece) : '';
-      if (key === hiKey) return; hiKey = key; disposeGroup(hi); hi = null;
-      if (!piece || !state) return;
-      const r = roadsOf(state);
-      if (piece.segmentId && r.segments[piece.segmentId]) { const s = r.segments[piece.segmentId]; hi = new THREE.Mesh(band(segmentPolyline(state, s), s.width / 2 + .05, .06), hiMat); }
-      else if (piece.nodeId && r.nodes[piece.nodeId]) { const n = r.nodes[piece.nodeId], w = n.width || nodeRadius(state, n.id) * 2; hi = new THREE.Mesh(new THREE.PlaneGeometry(w + .1, w + .1).rotateX(-Math.PI / 2), hiMat); hi.position.set(n.position.x, .06, n.position.z); }
-      if (hi) { hi.renderOrder = 4; scene.add(hi); }
+    /** Highlights a road piece: red under the demolish cursor, or (selected = true) the selected road in yellow. null clears. */
+    roadHighlight(state, piece, selected = false) {
+      const key = piece && state ? JSON.stringify(piece) + (selected ? JSON.stringify(roadsOf(state).segments[piece.segmentId]?.controlPoints || '') : '') : '';
+      if (selected) { if (key === selKey) return; selKey = key; disposeGroup(sel); sel = key ? pieceMesh(state, piece, selMat) : null; return; }
+      if (key === hiKey) return; hiKey = key; disposeGroup(hi); hi = key ? pieceMesh(state, piece, hiMat) : null;
+    },
+    /** Drag handles on a curve's control points (null hides them); the active one is green. */
+    roadHandles(points, active = -1) {
+      disposeGroup(handles); handles = null; if (!points) return;
+      handles = new THREE.Group();
+      points.forEach((p, i) => { const h = new THREE.Mesh(handleGeo, i === active ? handleOn : handleMat); h.position.set(p.x, .15, p.z); h.renderOrder = 12; const ring = new THREE.Mesh(ringGeo, ringMat); ring.position.set(p.x, .15, p.z); ring.renderOrder = 11; handles.add(h, ring); });
+      scene.add(handles);
     },
     setBuildMode(on) { gridLines.visible = occ.visible = on; },
     /** Occupied ground from the buildings' footprints (rotated as placed). */

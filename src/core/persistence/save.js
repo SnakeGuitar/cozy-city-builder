@@ -20,7 +20,7 @@ import { MODES } from '../config/rules.js';
 import { TUTORIAL_STEPS } from '../tutorial/tutorial.js';
 import { canPlace, insertBuilding, tileToPose, reindex } from '../domain/space.js';
 import { normAngle, quarterToAngle } from '../domain/geometry.js';
-import { createRoads, tilesToGraph, listNodes, listSegments } from '../domain/roads.js';
+import { createRoads, tilesToGraph, serializeRoads, normalizeRoads } from '../domain/roads.js';
 import { createEmptyState, listBuildings } from '../domain/state.js';
 import { clamp } from '../util/math.js';
 export const SAVE_VERSION = 7;
@@ -40,14 +40,7 @@ export function serializeGame(state) {
     buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, position: { x: b.position.x, z: b.position.z }, rotation: b.rotation, seed: b.seed, well: b.well, open: b.open })),
   };
 }
-export function serializeRoads(state) {
-  const r = state.roads || createRoads();
-  return {
-    nodes: listNodes(state).map(n => ({ id: n.id, position: { x: n.position.x, z: n.position.z }, ...(n.width ? { width: n.width, style: n.style } : {}), ...(n.paid ? { paid: n.paid } : {}) })),
-    segments: listSegments(state).map(s => ({ id: s.id, startNodeId: s.startNodeId, endNodeId: s.endNodeId, controlPoints: s.controlPoints.map(p => ({ x: p.x, z: p.z })), width: s.width, style: s.style, oneWay: !!s.oneWay, paid: s.paid || 0 })),
-    nextNodeId: r.nextNodeId, nextSegmentId: r.nextSegmentId,
-  };
-}
+export { serializeRoads, normalizeRoads };
 export const createSaveDocument = (state, ui = {}) => ({ v: SAVE_VERSION, mode: state.mode, game: serializeGame(state), ui });
 
 // ---------------------------------------------------------------- migrations: each takes version n and returns n+1
@@ -166,29 +159,6 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     if (spot) { insertBuilding(state, LANDMARK, spot, 1); warn('café was missing and has been restored'); }
   }
   return { state: reindex(state), warnings };
-}
-
-/** Validates an untrusted road network: drops bad nodes and segments (and segments whose ends are gone). */
-export function normalizeRoads(raw, warn = () => {}) {
-  const roads = createRoads(), r = raw && typeof raw === 'object' ? raw : {};
-  const finite = p => p && typeof p === 'object' && Number.isFinite(p.x) && Number.isFinite(p.z) && Math.abs(p.x) < 1e4 && Math.abs(p.z) < 1e4;
-  for (const n of Array.isArray(r.nodes) ? r.nodes : []) {
-    if (!n || !Number.isInteger(n.id) || n.id < 1 || roads.nodes[n.id] || !finite(n.position)) { warn('road node dropped'); continue; }
-    const node = { id: n.id, position: { x: n.position.x, z: n.position.z } };
-    if (n.width !== undefined) { if (Number.isFinite(n.width) && n.width > 0 && n.width <= 3 && isRoadType(n.style)) { node.width = n.width; node.style = n.style; } else warn(`road node ${n.id}: bad pad`); }
-    if (Number.isFinite(n.paid) && n.paid > 0) node.paid = n.paid;
-    roads.nodes[n.id] = node;
-  }
-  for (const s of Array.isArray(r.segments) ? r.segments : []) {
-    if (!s || !Number.isInteger(s.id) || s.id < 1 || roads.segments[s.id] || !roads.nodes[s.startNodeId] || !roads.nodes[s.endNodeId] || s.startNodeId === s.endNodeId) { warn('road segment dropped'); continue; }
-    const style = isRoadType(s.style) ? s.style : (warn(`road segment ${s.id}: style reset`), 'road');
-    const cps = (Array.isArray(s.controlPoints) ? s.controlPoints : []).filter(finite).slice(0, 16).map(p => ({ x: p.x, z: p.z }));
-    roads.segments[s.id] = { id: s.id, startNodeId: s.startNodeId, endNodeId: s.endNodeId, controlPoints: cps,
-      width: Number.isFinite(s.width) && s.width >= .2 && s.width <= 3 ? s.width : DEFS[style].road.width, style, oneWay: s.oneWay === true, paid: Number.isFinite(s.paid) && s.paid >= 0 ? s.paid : 0 };
-  }
-  const maxN = Math.max(0, ...Object.keys(roads.nodes).map(Number)), maxS = Math.max(0, ...Object.keys(roads.segments).map(Number));
-  roads.nextNodeId = Math.max(int(r.nextNodeId, 1, 1), maxN + 1); roads.nextSegmentId = Math.max(int(r.nextSegmentId, 1, 1), maxS + 1);
-  return roads;
 }
 
 /**

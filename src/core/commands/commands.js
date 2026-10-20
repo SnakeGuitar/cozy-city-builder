@@ -4,7 +4,7 @@ import { DEFS, ECON, LANDMARK, isRoadType, tierOf, tierStats, maxTierOf, investe
 import { SPEEDS } from '../config/world.js';
 import { rulesFor } from '../config/rules.js';
 import { autoFace, canPlace, insertBuilding, removeBuilding, setPose, tileToPose, snapToGrid, overlapping, obbFor } from '../domain/space.js';
-import { roadsOf, addTileRoad, nodeAtPoint, roadHitsObb, removeSegment, touchRoads, curvePoints, segmentControl } from '../domain/roads.js';
+import { roadsOf, addTileRoad, nodeAtPoint, roadHitsObb, removeSegment, touchRoads, curvePoints, segmentControl, normalizeRoads, listSegments, listNodes, segmentPolyline } from '../domain/roads.js';
 import { planRoad, applyRoad, checkCurve } from '../domain/roadPlan.js';
 import { makeObb } from '../domain/geometry.js';
 import { normAngle, angleToQuarter, QUARTER } from '../domain/geometry.js';
@@ -12,9 +12,9 @@ import { unlockedTypes } from '../goals/goals.js';
 import { nextRandom } from '../util/random.js';
 
 export const CMD = Object.freeze({ Place: 'PlaceBuilding', Move: 'MoveBuilding', Rotate: 'RotateBuilding', Demolish: 'DemolishBuilding', Upgrade: 'UpgradeBuilding',
-  BuildRoad: 'BuildRoad', DemolishRoad: 'DemolishRoad', EditRoad: 'EditRoad', SetSpeed: 'SetSpeed', TogglePause: 'TogglePause', TutorialSignal: 'TutorialSignal' });
+  BuildRoad: 'BuildRoad', DemolishRoad: 'DemolishRoad', EditRoad: 'EditRoad', RestoreRoads: 'RestoreRoads', SetSpeed: 'SetSpeed', TogglePause: 'TogglePause', TutorialSignal: 'TutorialSignal' });
 /** Commands that change the map (the application recomputes the town after them). */
-export const STRUCTURAL = new Set([CMD.Place, CMD.Move, CMD.Rotate, CMD.Demolish, CMD.Upgrade, CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad]);
+export const STRUCTURAL = new Set([CMD.Place, CMD.Move, CMD.Rotate, CMD.Demolish, CMD.Upgrade, CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad, CMD.RestoreRoads]);
 /** Commands that change only the road network (front ends may offer undo / redo for these). */
 export const ROAD_COMMANDS = new Set([CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad]);
 
@@ -195,6 +195,23 @@ const handlers = {
     const why = checkCurve(state, pl, seg.width); if (why) return reject(cmd, why.reason);
     const from = seg.controlPoints; seg.controlPoints = cps; touchRoads(state);
     return { ok: true, events: [{ type: 'road_edited', segmentId: seg.id, from, controlPoints: cps.map(p => ({ ...p })) }] };
+  },
+  /**
+   * Puts back a whole road network (undo / redo of road operations): { roads (as saved), coins: change to apply }.
+   * Refused when the restored roads would run through buildings placed since, or when the coins are not there.
+   */
+  [CMD.RestoreRoads](state, cmd) {
+    const delta = Number.isFinite(cmd.coins) ? cmd.coins : 0;
+    if (delta < 0 && !rulesFor(state).unlimitedMoney && state.coins < -delta) return reject(cmd, 'notEnough');
+    const prev = state.roads; state.roads = normalizeRoads(cmd.roads);
+    let why = null;
+    for (const s of listSegments(state)) { const w = checkCurve(state, segmentPolyline(state, s), s.width); if (w) { why = w.reason; break; } }
+    if (!why) for (const n of listNodes(state)) if (n.width && overlapping(state, makeObb(n.position.x, n.position.z, n.width, n.width, 0)).length) { why = 'blocked'; break; }
+    if (why) { state.roads = prev; return reject(cmd, why); }
+    if (!rulesFor(state).unlimitedMoney) state.coins += delta;
+    const events = [{ type: 'roads_replaced' }];
+    if (delta && !rulesFor(state).unlimitedMoney) events.push(coinsEvent(state, delta));
+    return { ok: true, events };
   },
   [CMD.SetSpeed](state, cmd) {
     if (!SPEEDS.includes(cmd.speed)) return reject(cmd, 'badSpeed');

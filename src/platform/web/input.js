@@ -18,7 +18,7 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
   } };
   const pt = e => ({ id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, button: e.button, touch: e.pointerType === 'touch', alt: e.altKey, ctrl: e.ctrlKey || e.metaKey });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
-  canvas.addEventListener('pointerdown', e => { if (!isPlaying()) return; audio.init(); try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already-released pointer */ } run(tracker.down(pt(e), { paintMode: interaction.startsPainting() })); });
+  canvas.addEventListener('pointerdown', e => { if (!isPlaying()) return; audio.init(); try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already-released pointer */ } run(tracker.down(pt(e), { paintMode: interaction.startsPainting(e.clientX, e.clientY) })); });
   canvas.addEventListener('pointermove', e => { if (isPlaying()) run(tracker.move(pt(e))); });
   canvas.addEventListener('pointerup', e => { if (isPlaying()) run(tracker.up(pt(e))); });
   canvas.addEventListener('pointercancel', e => run(tracker.cancel(pt(e))));
@@ -33,6 +33,7 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
     const k = e.key.toLowerCase();
     if (!isPlaying()) { if (k === 'escape') { e.preventDefault(); onEscape(); } return; }
     keys.add(k);
+    if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); if (k === 'y' || e.shiftKey) interaction.redoRoad(); else interaction.undoRoad(); return; }
     if (k === 'escape') { if (!interaction.cancel()) onEscape(); }
     else if (k === 'q' || k === 'e') camera.rotateStep(k === 'q' ? -1 : 1);
     else if (k === 'c') camera.reset();
@@ -42,7 +43,7 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
     else if (k === 'g' && interaction.tool.kind !== 'select') onTogglePlacement?.();
     else if (k === ' ') { e.preventDefault(); game.dispatch({ type: CMD.TogglePause }); }
     else if (k === '1' || k === '2' || k === '3') game.dispatch({ type: CMD.SetSpeed, speed: +k });
-    else if (k === 'delete' || k === 'backspace') interaction.armDemolish();
+    else if (k === 'delete' || k === 'backspace') { if (interaction.road) interaction.demolishRoad(); else interaction.armDemolish(); }
   });
   addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
   addEventListener('blur', () => keys.clear());

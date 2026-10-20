@@ -169,3 +169,25 @@ test('an empty network is safe', () => {
   const d = computeDerived(s); assert.deepEqual(d.roads, { mainNodes: [], mainSegments: [] });
   assert.deepEqual(serializeGame(s).roads, { nodes: [], segments: [], nextNodeId: 1, nextSegmentId: 1 });
 });
+
+test('undo / redo of road operations restores the network and the coins', () => {
+  const g = game(), c0 = snap(g).coins;
+  const a = road(g, [{ x: -6, z: 0 }, { x: 6, z: 0 }]); const c1 = snap(g).coins;
+  road(g, [{ x: 0, z: -6 }, { x: 0, z: 6 }]);
+  const crossed = JSON.stringify(snap(g).roads);
+  assert.deepEqual(g.roadHistory, { undo: 2, redo: 0 });
+  assert.ok(g.undoRoad().ok); assert.equal(listSegments(snap(g)).length, 1, 'the crossing road and its junction are gone'); assert.equal(snap(g).coins, c1);
+  assert.ok(g.undoRoad().ok); assert.equal(listSegments(snap(g)).length, 0); assert.equal(snap(g).coins, c0);
+  assert.equal(g.undoRoad(), null, 'nothing left to undo');
+  assert.ok(g.redoRoad().ok); assert.ok(g.redoRoad().ok);
+  assert.equal(JSON.stringify(snap(g).roads), crossed); assert.equal(snap(g).coins, c0 - roadCostOf('road_asphalt', 12) * 2);
+  // demolish, then undo it: the road comes back and the refund is paid back
+  const seg = listSegments(snap(g))[0].id, before = snap(g).coins;
+  g.dispatch({ type: CMD.DemolishRoad, segmentId: seg }); assert.ok(g.undoRoad().ok); assert.equal(snap(g).coins, before);
+  // an undo that would put a road under a building placed since is refused and kept
+  const h = createGame({ state: makeState([], { coins: 5000, goalsDone: ALL_GOALS }) });
+  const r = road(h, [{ x: -6, z: 3 }, { x: 6, z: 3 }]); h.dispatch({ type: CMD.DemolishRoad, segmentId: r.segmentIds[0] });
+  assert.ok(h.dispatch({ type: CMD.Place, buildingType: 'fr_trad', position: { x: 0, z: 3 }, rotation: 0 }).ok);
+  assert.equal(h.undoRoad().reason, 'blocked'); assert.deepEqual(h.roadHistory, { undo: 2, redo: 0 });
+  assert.ok(a.ok);
+});

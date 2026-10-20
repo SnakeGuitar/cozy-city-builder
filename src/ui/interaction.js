@@ -12,8 +12,8 @@ import { quarterToAngle, angleToQuarter, normAngle } from '../core/domain/geomet
 import { snapPosition, snapAngle, snapToRoad, snapToBuildings } from '../core/domain/snap.js';
 import { statsOf } from '../core/domain/state.js';
 import { CMD, peekSeed, refundFor, costFor, canAfford, roadCostFor } from '../core/commands/commands.js';
-import { planRoad, roadPieceAt } from '../core/domain/roadPlan.js';
-import { roadsOf } from '../core/domain/roads.js';
+import { planRoad, roadPieceAt, checkCurve } from '../core/domain/roadPlan.js';
+import { roadsOf, segmentControl, curvePoints, polylineLength, segmentPolyline, pointAt } from '../core/domain/roads.js';
 import { simplifyPath } from '../presentation/input/path.js';
 import { $ } from './dom/dom.js';
 import { t } from './dom/i18n.js';
@@ -27,6 +27,8 @@ export function normalizePlacement(p = {}) {
 
 export function createInteraction({ game, view, onChange, placement = () => DEFAULT_PLACEMENT }) {
   let draft = null, pendingRoad = null; // road drawing: the dragged path, and (touch) a plan waiting for ✓
+  // a selected road piece ({ segmentId } | { nodeId }); while editing its curve, `handle` is the control point being dragged
+  let road = null, editing = false, handle = -1, activeHandle = -1, handleDrag = null;
   let tool = { kind: 'select' }, selected = 0, hover = null, pending = null, mouse = { x: 0, y: 0, in: false }, confirmDemo = false, upgradeOpen = false, time = 0;
   const tip = $('tip');
   const snap = () => game.getSnapshot();
@@ -78,7 +80,15 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     if (!selected) view.overlays.hideRange();
     updateHover(); onChange('tool');
   }
+  /** Control points of the selected segment, for the edit handles. */
+  const handlePoints = () => { const seg = road?.segmentId && roadsOf(snap().state).segments[road.segmentId]; return seg ? seg.controlPoints : []; };
+  function showHandles() { view.overlays.roadHandles(editing && road?.segmentId ? handlePoints() : null, activeHandle); }
+  function selectRoad(piece) {
+    road = piece || null; editing = false; handle = activeHandle = -1; handleDrag = null; confirmDemo = false;
+    view.overlays.roadHighlight(snap().state, road, true); showHandles(); onChange('selection');
+  }
   function select(id) {
+    if (id && road) { road = null; editing = false; view.overlays.roadHighlight(null, null, true); showHandles(); }
     selected = id || 0; confirmDemo = false; upgradeOpen = false; view.selectBuilding(selected);
     const b = selected && snap().state.buildings[selected];
     if (b) view.overlays.range(b.type, b.position, b.rotation, statsOf(b).r); else view.overlays.hideRange();
@@ -137,19 +147,58 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
 
   return {
     get tool() { return tool; }, get selected() { return selected; }, get confirmDemo() { return confirmDemo; }, get upgradeOpen() { return upgradeOpen; },
+    get road() { return road; }, get editing() { return editing; }, get activeHandle() { return activeHandle; },
+    selectRoad,
+    /** Turns curve editing (handles on the control points) on or off for the selected segment. */
+    toggleEditing(on = !editing) { if (!road?.segmentId) return; editing = on; activeHandle = -1; showHandles(); onChange('selection'); },
+    /** Adds a control point at the middle of the selected segment (then drag it). */
+    addControlPoint() {
+      const { state } = snap(), seg = road?.segmentId && roadsOf(state).segments[road.segmentId]; if (!seg) return false;
+      const pl = segmentPolyline(state, seg), mid = pointAt(pl, polylineLength(pl) / 2);
+      const res = game.dispatch({ type: CMD.EditRoad, segmentId: seg.id, action: 'add', position: { x: mid.x, z: mid.z } });
+      if (res.ok) { editing = true; activeHandle = roadsOf(state).segments[seg.id].controlPoints.findIndex(p => p.x === mid.x && p.z === mid.z); showHandles(); onChange('selection'); }
+      return res.ok;
+    },
+    /** Removes the active (or last) control point of the selected segment. */
+    removeControlPoint() {
+      const seg = road?.segmentId && roadsOf(snap().state).segments[road.segmentId]; if (!seg || !seg.controlPoints.length) return false;
+      const i = activeHandle >= 0 ? activeHandle : seg.controlPoints.length - 1;
+      const res = game.dispatch({ type: CMD.EditRoad, segmentId: seg.id, action: 'remove', index: i }); activeHandle = -1; showHandles(); onChange('selection'); return res.ok;
+    },
+    demolishRoad() { if (!road) return false; if (!confirmDemo) { confirmDemo = true; onChange('selection'); return false; } const res = game.dispatch({ type: CMD.DemolishRoad, ...road }); if (res.ok) selectRoad(null); return res.ok; },
+    undoRoad() { const r = game.undoRoad(); if (r?.ok) { if (road && !roadsOf(snap().state).segments[road.segmentId] && !roadsOf(snap().state).nodes[road.nodeId]) selectRoad(null); else showHandles(); } return r; },
+    redoRoad() { const r = game.redoRoad(); if (r?.ok) showHandles(); return r; },
     get pending() { return pending || pendingRoad; }, get freeMode() { return freeMode(); }, get drawMode() { return drawMode(); },
     /** Opens or closes the upgrade preview of the selected building. */
     toggleUpgrade(open = !upgradeOpen) { upgradeOpen = !!selected && open; confirmDemo = false; onChange('selection'); },
     /** Confirms the previewed upgrade. The core validates it (money, tier) and answers with an event. */
     confirmUpgrade() { if (!selected) return false; const res = game.dispatch({ type: CMD.Upgrade, id: selected }); if (res.ok) { upgradeOpen = false; onChange('selection'); } return res.ok; },
     setTool, select, updateHover,
-    frame(dt) { time += dt; if (building()) updateHover(); if (selected && !snap().state.buildings[selected]) select(0); },
+    frame(dt) {
+      time += dt; if (building()) updateHover(); if (selected && !snap().state.buildings[selected]) select(0);
+      const r = roadsOf(snap().state); if (road && !(road.segmentId ? r.segments[road.segmentId] : r.nodes[road.nodeId])) selectRoad(null);
+      else if (road) view.overlays.roadHighlight(snap().state, road, true);
+    },
     pointerMove(x, y) { mouse = { x, y, in: true }; updateHover(); },
     pointerLeave() { mouse.in = false; updateHover(); },
     /** Left-button press: roads and demolition paint while dragging. Returns true if the press starts painting. */
-    startsPainting() { return (tool.kind === 'build' && isRoadType(tool.type)) || tool.kind === 'demolish'; },
+    startsPainting(x, y) {
+      if (tool.kind === 'select' && editing && road?.segmentId && x !== undefined) { // grab a curve handle under the pointer
+        const pts = handlePoints(); handle = -1;
+        pts.forEach((p, i) => { const [sx, sy] = view.project({ x: p.x, y: .15, z: p.z }); if (Math.hypot(sx - x, sy - y) < 18 && handle < 0) handle = i; });
+        if (handle >= 0) { activeHandle = handle; handleDrag = null; return true; }
+      }
+      return (tool.kind === 'build' && isRoadType(tool.type)) || tool.kind === 'demolish';
+    },
     paint(x, y, dragging) {
       const { state } = snap();
+      if (handle >= 0 && road?.segmentId) { // dragging a curve handle: preview the bent road
+        const g = view.groundAt(x, y), seg = roadsOf(state).segments[road.segmentId]; if (!g || !seg) return;
+        const cps = seg.controlPoints.map((p, i) => i === handle ? { x: g.x, z: g.z } : p), ends = segmentControl(state, seg);
+        const pl = curvePoints([ends[0], ...cps, ends.at(-1)]), why = checkCurve(state, pl, seg.width);
+        handleDrag = { x: g.x, z: g.z }; view.overlays.roadPlan({ polyline: pl, width: seg.width, style: seg.style, start: {}, end: {} }, !why);
+        view.overlays.roadHandles(cps, handle); return;
+      }
       if (drawMode()) { // drawing a road: collect the dragged path and preview the plan
         const g = view.groundAt(x, y); if (!g) return;
         if (!draft || !dragging && draft.length > 1) { draft = [g]; pendingRoad = null; }
@@ -161,6 +210,10 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     },
     /** The drag ended: build the drawn road (mouse) or keep it for ✓ (touch). */
     paintEnd(x, y, touch = false) {
+      if (handle >= 0) { // drop the handle: the core checks the new curve
+        if (handleDrag && road?.segmentId) game.dispatch({ type: CMD.EditRoad, segmentId: road.segmentId, action: 'move', index: handle, position: handleDrag });
+        handle = -1; handleDrag = null; view.overlays.hideRoadPlan(); showHandles(); onChange('selection'); return;
+      }
       if (!drawMode() || !draft) return;
       const g = view.groundAt(x, y); if (g && Math.hypot(g.x - draft.at(-1).x, g.z - draft.at(-1).z) > .05) draft.push(g);
       const req = draft.length > 1 ? roadRequest(draft) : null; draft = null;
@@ -181,12 +234,18 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
         const id = view.pickBuilding(x, y, state); if (id) { demolish(id); return; }
         const g = view.groundAt(x, y), piece = g && roadPieceAt(state, g.x, g.z); if (piece) game.dispatch({ type: CMD.DemolishRoad, ...piece });
       }
-      else if (!wasPainting) { const id = view.pickBuilding(x, y, state); select(id && !isRoadType(state.buildings[id].type) ? id : 0); }
+      else if (!wasPainting) {
+        const id = view.pickBuilding(x, y, state);
+        if (id) { select(id); return; }
+        const g = view.groundAt(x, y), piece = g && roadPieceAt(state, g.x, g.z);
+        select(0); selectRoad(piece);
+      }
     },
     /** Places the pending (touch) preview. */
     confirmPending() { if (pendingRoad) { const ok = buildRoad(pendingRoad); pendingRoad = null; onChange('tool'); return ok; } if (pending && building()) return place(pending); return false; },
     /** Escape / right click: drop a road being drawn or a pending preview, then the tool, then the selection. False when there was nothing to cancel. */
-    cancel() { if (draft || pendingRoad) { draft = null; pendingRoad = null; view.overlays.hideRoadPlan(); onChange('tool'); updateHover(); return true; } if (pending) { pending = null; onChange('tool'); updateHover(); return true; } if (tool.kind !== 'select') { setTool({ kind: 'select' }); return true; } if (selected) { select(0); return true; } return false; },
+    cancel() { if (road) { if (editing) { editing = false; showHandles(); onChange('selection'); } else selectRoad(null); return true; }
+      if (draft || pendingRoad) { draft = null; pendingRoad = null; view.overlays.hideRoadPlan(); onChange('tool'); updateHover(); return true; } if (pending) { pending = null; onChange('tool'); updateHover(); return true; } if (tool.kind !== 'select') { setTool({ kind: 'select' }); return true; } if (selected) { select(0); return true; } return false; },
     startMove(id) {
       const b = snap().state.buildings[id]; if (!b) return;
       select(0); setTool({ kind: 'move', id, type: b.type, r: angleToQuarter(b.rotation), rot: b.rotation, manualR: true }); view.setBuildingHidden(id, true);

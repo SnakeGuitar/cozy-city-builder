@@ -19,6 +19,14 @@ function upgradeHtml(state, b, open, rules) {
     ${pv.reason ? `<p class="bad">${t(pv.reason)}</p>` : ''}<div class="actions"><button class="btn" id="p-up-no">${t('cancel')}</button><button class="btn up" id="p-up-yes" ${pv.reason ? 'disabled' : ''}>${t('upgradeConfirm')}</button></div></div>`;
 }
 
+/** Never replace a panel's buttons between a press and its release, or the click is lost: redraws wait for the release. */
+export function bindHold(p) {
+  if (p._holdBound) return; p._holdBound = true;
+  p.addEventListener('pointerdown', () => { p._hold = true; });
+  addEventListener('pointerup', () => { if (!p._hold) return; p._hold = false; if (p._pending) setTimeout(p._pending, 0); p._pending = null; }, true);
+  addEventListener('pointercancel', () => { p._hold = false; }, true);
+}
+
 export function renderSelectionPanel({ state, derived }, id, confirmDemo, actions, upgradeOpen = false) {
   const p = $('panel'), b = id && state.buildings[id], rec = b && derived.byId[id];
   if (!b || !rec) { p.hidden = true; return; }
@@ -52,12 +60,7 @@ export function renderSelectionPanel({ state, derived }, id, confirmDemo, action
     <div class="actions"><button class="btn" id="p-move">${t('move')}</button><button class="btn" id="p-rot">${t('rotate')}</button>
     ${b.type === LANDMARK ? '' : `<button class="btn ${confirmDemo ? 'red' : 'warn'}" id="p-demo">${confirmDemo ? (refundFor(state, b) ? t('demolishConfirm', { n: refundFor(state, b) }) : t('demolishSure')) : t('demolish')}</button>`}</div>`;
   if (html === p._html) return; // unchanged: keep the DOM (and any click in progress)
-  if (!p._holdBound) { // never replace the buttons between a press and its release, or the click is lost
-    p._holdBound = true;
-    p.addEventListener('pointerdown', () => { p._hold = true; });
-    addEventListener('pointerup', () => { if (!p._hold) return; p._hold = false; if (p._pending) setTimeout(p._pending, 0); p._pending = null; }, true);
-    addEventListener('pointercancel', () => { p._hold = false; }, true);
-  }
+  bindHold(p);
   if (p._hold) { p._pending = () => renderSelectionPanel({ state, derived }, id, confirmDemo, actions, upgradeOpen); return; }
   p._html = html; p.innerHTML = html;
   $('p-close').onclick = actions.close; $('p-move').onclick = actions.move; $('p-rot').onclick = actions.rotate;

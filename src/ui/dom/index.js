@@ -14,6 +14,7 @@ import { renderCatalog, affordKey } from './catalog.js';
 import { renderSelectionPanel, relationLinks } from './selectionPanel.js';
 import { createMascot } from './mascot/mascot.js';
 import { createPlaceBar } from './placeBar.js';
+import { renderRoadPanel } from './roadPanel.js';
 import { normalizePlacement } from '../interaction.js';
 
 /** Global player settings (saved apart from any game). Untrusted input is normalised here. */
@@ -40,7 +41,7 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
   const labels = createWorldLabels(view);
   const mascot = createMascot(settings);
   const justDone = new Map(), income = new Map();
-  const placeBar = createPlaceBar({ interaction, prefs: () => slot.place, onChange: () => requestSave() });
+  const placeBar = createPlaceBar({ interaction, prefs: () => slot.place, onChange: () => requestSave(), history: () => game.roadHistory });
   let tickCount = 0, lastAfford = '';
   const snap = () => game.getSnapshot();
   const rules = () => game.rules();
@@ -50,7 +51,7 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
   const hud = () => renderHud(snap(), settings, rules());
   const catalog = () => renderCatalog(snap(), slot, game.unlocked(), thumbs, activeType());
   const goals = () => renderGoals(snap(), justDone, performance.now(), rules().goalsEnabled);
-  const panel = () => renderSelectionPanel(snap(), interaction.selected, interaction.confirmDemo, {
+  const panel = () => renderRoadPanel(snap(), interaction, game.roadHistory, rules()) || renderSelectionPanel(snap(), interaction.selected, interaction.confirmDemo, {
     close: () => interaction.select(0), move: () => interaction.startMove(interaction.selected), rotate: () => interaction.rotate(), demolish: () => interaction.demolishSelected(),
     upgrade: open => { audio.click(); interaction.toggleUpgrade(open); }, confirmUpgrade: () => interaction.confirmUpgrade() }, interaction.upgradeOpen);
   function relations() {
@@ -101,6 +102,8 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
       case 'road_built': structural = true; e.cell ? audio.tick() : audio.place(); if (slot.newT.includes(e.style)) slot.newT = slot.newT.filter(x => x !== e.style); break;
       case 'road_removed': structural = true; audio.remove(); break;
       case 'road_edited': structural = true; audio.click(); break;
+      case 'roads_replaced': structural = true; audio.click(); break;
+      case 'road_history': panel(); placeBar.render(); break;
       case 'building_removed': structural = true; audio.remove(); if (e.refund) labels.floater(view.topOf({ type: e.buildingType, position: e.position }, -.45), `${t('refunded', { n: e.refund })} ${ico('i-coin', '')}`, '', 1.4); income.delete(e.id); break;
       case 'building_moved': structural = true; audio.place(); break;
       case 'building_rotated': structural = true; audio.click(); break;
