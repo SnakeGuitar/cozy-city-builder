@@ -2,7 +2,7 @@
 // Owns only presentation state (current tool, hover, selection); game rules stay in core/.
 import { DEFS } from '../core/config/catalog.js';
 import { canPlace, autoFace } from '../core/domain/grid.js';
-import { CMD, peekSeed, refundOf } from '../core/commands/commands.js';
+import { CMD, peekSeed, refundFor, costFor, canAfford } from '../core/commands/commands.js';
 import { $ } from './dom/dom.js';
 import { t } from './dom/i18n.js';
 
@@ -48,15 +48,16 @@ export function createInteraction({ game, view, onChange }) {
       const { x, y } = tile; hover = [x, y];
       const r = rotationFor(tool.type, x, y);
       const seed = tool.kind === 'move' ? state.buildings[tool.id].seed : peekSeed(state);
-      const why = canPlace(state, tool.type, x, y, tool.kind === 'move' ? tool.id : 0) || (tool.kind === 'build' && state.coins < d.cost ? 'notEnough' : null);
+      const why = canPlace(state, tool.type, x, y, tool.kind === 'move' ? tool.id : 0) || (tool.kind === 'build' && !canAfford(state, tool.type) ? 'notEnough' : null);
+      const cost = costFor(state, tool.type);
       view.overlays.ghost(tool.type, view.variantOf(tool.type, seed), x, y, r, !why, time);
       view.overlays.footprint(x, y, d.s, !why); view.overlays.range(tool.type, x, y);
       tip.hidden = false;
-      tip.innerHTML = `${t('n_' + tool.type)} ${tool.kind === 'build' ? `· ${d.cost} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>${d.upkeep ? ` · −${d.upkeep}${t('perMin')}` : ''}` : ''}${why ? ` · <span class="bad">${t(why)}</span>` : ''}<br><span style="font-weight:600;opacity:.7">${tool.type === 'road' ? t('roadsHint') : t(tool.kind === 'move' ? 'moving' : 'placing')}</span>`;
+      tip.innerHTML = `${t('n_' + tool.type)} ${tool.kind === 'build' ? `· ${cost ? cost : t('free')} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>${d.upkeep ? ` · −${d.upkeep}${t('perMin')}` : ''}` : ''}${why ? ` · <span class="bad">${t(why)}</span>` : ''}<br><span style="font-weight:600;opacity:.7">${tool.type === 'road' ? t('roadsHint') : t(tool.kind === 'move' ? 'moving' : 'placing')}</span>`;
     } else if (tool.kind === 'demolish') {
       const id = view.pickBuilding(mouse.x, mouse.y, state), b = id && state.buildings[id];
       tip.hidden = false;
-      if (b) { view.overlays.footprint(b.x, b.y, DEFS[b.type].s, false); tip.innerHTML = b.type === 'cafe' ? `<span class="bad">${t('cafeHeart')}</span>` : `${t('demolish')}: ${t('n_' + b.type)} · +${refundOf(b.type)}`; }
+      if (b) { view.overlays.footprint(b.x, b.y, DEFS[b.type].s, false); tip.innerHTML = b.type === 'cafe' ? `<span class="bad">${t('cafeHeart')}</span>` : `${t('demolish')}: ${t('n_' + b.type)}${refundFor(state, b.type) ? ` · +${refundFor(state, b.type)}` : ''}`; }
       else tip.innerHTML = t('demolishMode');
     }
     if (!tip.hidden) { const tx = Math.min(mouse.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${mouse.y + 18}px)`; }
@@ -77,11 +78,15 @@ export function createInteraction({ game, view, onChange }) {
     },
     click(x, y, wasPainting) {
       const { state } = snap();
-      if (building()) { if (tool.type !== 'road' && hover) place(hover[0], hover[1]); }
+      if (building()) {
+        if (tool.type === 'road') { if (!wasPainting) this.paint(x, y, false); return; }   // a tap places one tile
+        const tile = view.tileAt(x, y, DEFS[tool.type].s); if (tile) place(tile.x, tile.y);
+      }
       else if (tool.kind === 'demolish') { const id = view.pickBuilding(x, y, state); if (id) demolish(id); }
       else if (!wasPainting) { const id = view.pickBuilding(x, y, state); select(id && state.buildings[id].type !== 'road' ? id : 0); }
     },
-    cancel() { if (tool.kind !== 'select') setTool({ kind: 'select' }); else if (selected) select(0); },
+    /** Escape / right click: leave the tool, then the selection. Returns false when there was nothing to cancel. */
+    cancel() { if (tool.kind !== 'select') { setTool({ kind: 'select' }); return true; } if (selected) { select(0); return true; } return false; },
     startMove(id) {
       const b = snap().state.buildings[id]; if (!b) return;
       select(0); setTool({ kind: 'move', id, type: b.type, r: b.r }); view.setBuildingHidden(id, true);

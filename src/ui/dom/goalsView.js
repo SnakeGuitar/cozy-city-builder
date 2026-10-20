@@ -4,7 +4,8 @@ import { goalProgress } from '../../core/goals/goals.js';
 import { $ } from './dom.js';
 import { t } from './i18n.js';
 
-export function renderGoals({ state, derived }, justDone, now) {
+export function renderGoals({ state, derived }, justDone, now, enabled = true) {
+  if (!enabled) { $('goals').hidden = true; return; }
   const show = [];
   for (const g of GOALS) { const done = state.goalsDone.includes(g.id); if (done && !(justDone.has(g.id) && now - justDone.get(g.id) < 4000)) continue; show.push(g); if (show.length >= 3) break; }
   if (!show.length) { $('goals').hidden = true; return; } $('goals').hidden = false;

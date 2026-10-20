@@ -3,7 +3,7 @@ export const LANGS = { es: 'Español', en: 'English', ja: '日本語', zh: '中�
 export const STR = {
 es: {
   town:'Villa Limón', subtitle:'Limonadas y pequeñas cosas', coins:'Monedas', residents:'Habitantes', wellbeing:'Bienestar', day:'Día {n}',
-  pause:'Pausa (Espacio)', play:'Reanudar (Espacio)', rotL:'Girar vista (Q)', rotR:'Girar vista (E)', soundOn:'Activar sonido', soundOff:'Silenciar', cityBtn:'Panel urbano y demanda',
+  pause:'Pausa (Espacio)', play:'Reanudar (Espacio)', soundOn:'Activar sonido', soundOff:'Silenciar', cityBtn:'Panel urbano y demanda',
   settings:'Ajustes', language:'Idioma', tips:'Consejos del tutorial', reset:'Empezar de nuevo', resetConfirm:'Pulsa otra vez para borrar el pueblo', close:'Cerrar', on:'Sí', off:'No',
   cat_paths:'Caminos', cat_homes:'Viviendas', cat_shops:'Comercio', cat_industry:'Industria', cat_services:'Servicios', cat_green:'Naturaleza', cat_decor:'Plazas y detalles',
   tool_select:'Explorar', tool_demolish:'Demoler', locked:'Bloqueado', built:'Construido', newb:'Nuevo',
@@ -17,8 +17,7 @@ es: {
   notEnough:'Faltan monedas', blocked:'Ese hueco está ocupado', outside:'Fuera del pueblo',
   cafeHeart:'El Café Limón es el corazón del pueblo: puedes moverlo, pero no demolerlo.',
   placing:'Clic para colocar · R girar · Esc cancelar', moving:'Clic para soltar · Esc para volver', demolishMode:'Clic en un edificio para demolerlo (recuperas la mitad)',
-  roadsHint:'Mantén pulsado y arrastra para trazar caminos', help:'Arrastrar: mover · Rueda: zoom · Q/E: girar · R: rotar edificio · Espacio: pausa',
-  fx_well:'+{n} bienestar', fx_inc:'+{n}% ingresos', refunded:'Recuperas {n}',
+  roadsHint:'Mantén pulsado y arrastra para trazar caminos', fx_well:'+{n} bienestar', fx_inc:'+{n}% ingresos', refunded:'Recuperas {n}',
   celebrate:'florece entre limoneros', welcome:'Bienvenida a', migrated:'Tu partida anterior se ha trasladado a Villa Limón.',
   demand:'Demanda', dem_r:'Residencial', dem_c:'Comercial', dem_i:'Industrial', cityPanel:'Panel urbano',
   sec_people:'Población y empleo', sec_services:'Servicios', sec_money:'Finanzas', vacantHomes:'Viviendas vacías', places:'plazas', homeless:'Vecinos buscando casa',
@@ -80,11 +79,12 @@ es: {
   n_flowerbed:'Parterre', d_flowerbed:'Flores junto a la puerta. Pequeño, pero se nota.',
   n_bench:'Banco', d_bench:'Un sitio para sentarse a ver pasar la tarde.',
   n_lamp:'Farol', d_lamp:'Luz cálida al anochecer y clientes que se quedan un rato más.',
-  k_road:'Camino', k_house:'Vivienda', k_shop:'Comercio', k_industry:'Industria', k_service:'Servicio local', k_utility:'Infraestructura', k_nature:'Espacio verde', k_deco:'Decoración'
+  k_road:'Camino', k_house:'Vivienda', k_shop:'Comercio', k_industry:'Industria', k_service:'Servicio local', k_utility:'Infraestructura', k_nature:'Espacio verde', k_deco:'Decoración',
+  free:'Gratis', demolishSure:'¿Demoler?', mode_normal:'Normal', mode_sandbox:'Sandbox', camView:'Vista isométrica / 3D (V)', camReset:'Restablecer cámara (C)', menuBtn:'Menú (Esc)', rotL:'Girar vista a la izquierda (Q)', rotR:'Girar vista a la derecha (E)', help:'Arrastrar: mover · Clic derecho o Alt + arrastrar: orbitar · Rueda: zoom · Mayús + rueda: inclinar · Q/E: girar · V: vista 3D · C: centrar', mascot_name:'Limoni', dm_no_cafe:'Coloca el Café Limón para fundar el pueblo.', g0:'Coloca el Café Limón', g0b:'Conecta tu primera vivienda', menu_continue:'Continuar', menu_continue_hint:'Vuelve a tu pueblo', menu_new:'Nueva partida', menu_new_hint:'Un mapa vacío y el café por colocar', menu_sandbox:'Modo sandbox', menu_sandbox_hint:'Todo desbloqueado y sin costes', menu_sandbox_continue:'Abre tu sandbox guardado', menu_credits:'Créditos', menu_paused:'En pausa', menu_resume:'Seguir jugando', menu_sandbox_restart:'Reiniciar sandbox vacío', menu_main:'Menú principal', menu_back:'Volver', set_sound:'Sonido', set_mascot:'Mostrar a Limoni', set_smooth:'Cámara suave', set_controls:'Cámara: arrastra para mover, clic derecho o Alt + arrastrar para orbitar, rueda para zoom, Mayús + rueda para inclinar. En pantallas táctiles: un dedo mueve, dos dedos hacen zoom y giran. V cambia entre vista isométrica y 3D; C centra la cámara.', credits_text:'Villa Limón — un pueblo de limonadas y pequeñas cosas.\nDiseño, código, modelos procedurales y Limoni: creados para este proyecto.\nRender con Three.js · Tipografías: Cormorant Garamond, Nunito y Pinyon Script (Google Fonts).', confirm_title:'¿Empezar de nuevo?', confirm_normal:'Ya tienes una partida guardada. Si empiezas una nueva, se sobrescribirá.', confirm_sandbox:'Tu sandbox guardado se borrará y empezarás con el mapa vacío.', confirm_yes:'Sí, empezar de nuevo', confirm_no:'Cancelar', m_menu:'¡Hola! Soy Limoni. ¿Fundamos un pueblo entre limoneros?', m_tut_explore:'¡Bienvenida! Mira alrededor: arrastra para mover la vista, usa la rueda para acercarte y el clic derecho para girar.', m_tut_cafe:'Todo pueblo empieza con un buen café. Abre «Comercio» y coloca el Café Limón: es gratis.', m_tut_road:'¡Qué bonito! Ahora traza un camino junto al café: abre «Caminos» y arrastra desde su puerta.', m_tut_home:'Perfecto. Coloca tu primera vivienda junto al camino, en «Viviendas».', m_tut_connect:'Esa casa aún no llega al café. Une su puerta al camino para que lleguen vecinos.', m_tut_done:'¡Ya hay vecinos! Sigue las metas a tu ritmo; yo te aviso si algo necesita cariño.', m_goal:'¡Lo lograste: {goal}!', m_unlock:'Nuevo en el catálogo: {types}.', m_no_road:'{building} no tiene camino hasta el café. Conéctalo para que funcione.', m_utils:'Falta agua, luz o recogida de residuos. Mira «Servicios».', m_services:'Muchas casas no tienen escuela, clínica o seguridad cerca.', m_jobs:'Hay vecinos sin trabajo. Un taller o un comercio les vendría bien.', m_vacant:'Hay locales vacíos: el comercio supera la demanda.', m_sandbox:'¡Modo sandbox! Todo está desbloqueado y nada cuesta. Construye lo que quieras.', m_welcome_back:'¡Hola de nuevo! Tu pueblo te estaba esperando.'
 },
 en: {
   town:'Villa Limón', subtitle:'Lemonade & little things', coins:'Coins', residents:'Residents', wellbeing:'Wellbeing', day:'Day {n}',
-  pause:'Pause (Space)', play:'Resume (Space)', rotL:'Rotate view (Q)', rotR:'Rotate view (E)', soundOn:'Turn sound on', soundOff:'Mute', cityBtn:'City panel and demand',
+  pause:'Pause (Space)', play:'Resume (Space)', soundOn:'Turn sound on', soundOff:'Mute', cityBtn:'City panel and demand',
   settings:'Settings', language:'Language', tips:'Tutorial tips', reset:'Start over', resetConfirm:'Press again to erase the town', close:'Close', on:'On', off:'Off',
   cat_paths:'Paths', cat_homes:'Homes', cat_shops:'Commerce', cat_industry:'Industry', cat_services:'Services', cat_green:'Nature', cat_decor:'Squares & details',
   tool_select:'Explore', tool_demolish:'Demolish', locked:'Locked', built:'Built', newb:'New',
@@ -98,8 +98,7 @@ en: {
   notEnough:'Not enough coins', blocked:'That spot is taken', outside:'Outside the town',
   cafeHeart:'Café Limón is the heart of the town: you can move it, not demolish it.',
   placing:'Click to place · R rotate · Esc cancel', moving:'Click to drop · Esc to put back', demolishMode:'Click a building to demolish it (half refunded)',
-  roadsHint:'Hold and drag to lay paths', help:'Drag: pan · Wheel: zoom · Q/E: rotate · R: turn building · Space: pause',
-  fx_well:'+{n} wellbeing', fx_inc:'+{n}% income', refunded:'Refunded {n}',
+  roadsHint:'Hold and drag to lay paths', fx_well:'+{n} wellbeing', fx_inc:'+{n}% income', refunded:'Refunded {n}',
   celebrate:'is blooming among the lemon trees', welcome:'Welcome to', migrated:'Your previous town has moved to Villa Limón.',
   demand:'Demand', dem_r:'Residential', dem_c:'Commercial', dem_i:'Industrial', cityPanel:'City panel',
   sec_people:'People and jobs', sec_services:'Services', sec_money:'Finances', vacantHomes:'Empty homes', places:'places', homeless:'Residents looking for a home',
@@ -161,11 +160,12 @@ en: {
   n_flowerbed:'Flower bed', d_flowerbed:'Flowers by the door. Small, but people notice.',
   n_bench:'Bench', d_bench:'A place to sit and watch the afternoon go by.',
   n_lamp:'Street lamp', d_lamp:'Warm light at dusk, and customers who linger a little longer.',
-  k_road:'Path', k_house:'Home', k_shop:'Commerce', k_industry:'Industry', k_service:'Local service', k_utility:'Infrastructure', k_nature:'Green space', k_deco:'Decoration'
+  k_road:'Path', k_house:'Home', k_shop:'Commerce', k_industry:'Industry', k_service:'Local service', k_utility:'Infrastructure', k_nature:'Green space', k_deco:'Decoration',
+  free:'Free', demolishSure:'Demolish?', mode_normal:'Normal', mode_sandbox:'Sandbox', camView:'Isometric / 3D view (V)', camReset:'Reset camera (C)', menuBtn:'Menu (Esc)', rotL:'Turn view left (Q)', rotR:'Turn view right (E)', help:'Drag: pan · Right-click or Alt + drag: orbit · Wheel: zoom · Shift + wheel: tilt · Q/E: turn · V: 3D view · C: centre', mascot_name:'Limoni', dm_no_cafe:'Place Café Limón to found the town.', g0:'Place Café Limón', g0b:'Connect your first home', menu_continue:'Continue', menu_continue_hint:'Back to your town', menu_new:'New game', menu_new_hint:'An empty map and the café to place', menu_sandbox:'Sandbox mode', menu_sandbox_hint:'Everything unlocked, nothing costs', menu_sandbox_continue:'Open your saved sandbox', menu_credits:'Credits', menu_paused:'Paused', menu_resume:'Keep playing', menu_sandbox_restart:'Restart an empty sandbox', menu_main:'Main menu', menu_back:'Back', set_sound:'Sound', set_mascot:'Show Limoni', set_smooth:'Smooth camera', set_controls:'Camera: drag to pan, right-click or Alt + drag to orbit, wheel to zoom, Shift + wheel to tilt. On touch screens: one finger pans, two fingers zoom and turn. V switches between isometric and 3D; C centres the camera.', credits_text:'Villa Limón — a town of lemonade and little things.\nDesign, code, procedural models and Limoni: made for this project.\nRendered with Three.js · Typefaces: Cormorant Garamond, Nunito and Pinyon Script (Google Fonts).', confirm_title:'Start over?', confirm_normal:'You already have a saved game. Starting a new one will overwrite it.', confirm_sandbox:'Your saved sandbox will be erased and you will start with an empty map.', confirm_yes:'Yes, start over', confirm_no:'Cancel', m_menu:'Hi! I’m Limoni. Shall we found a town among the lemon trees?', m_tut_explore:'Welcome! Have a look around: drag to move the view, scroll to zoom and right-click to turn.', m_tut_cafe:'Every town starts with a good café. Open “Commerce” and place Café Limón: it’s free.', m_tut_road:'Lovely! Now lay a path next to the café: open “Paths” and drag from its door.', m_tut_home:'Perfect. Place your first home next to the path, under “Homes”.', m_tut_connect:'That house can’t reach the café yet. Join its door to the path so residents can arrive.', m_tut_done:'Residents are here! Follow the goals at your own pace; I’ll tell you if something needs care.', m_goal:'You did it: {goal}!', m_unlock:'New in the catalogue: {types}.', m_no_road:'{building} has no path to the café. Connect it so it can work.', m_utils:'Water, power or waste collection is short. Have a look at “Services”.', m_services:'Many homes have no school, clinic or safety nearby.', m_jobs:'Some residents are out of work. A workshop or a shop would help.', m_vacant:'Some shops stand empty: there is more shop space than demand.', m_sandbox:'Sandbox mode! Everything is unlocked and nothing costs a thing. Build whatever you like.', m_welcome_back:'Hello again! Your town has been waiting for you.'
 },
 ja: {
   town:'Villa Limón', subtitle:'レモネードと小さなもの', coins:'コイン', residents:'人口', wellbeing:'しあわせ', day:'{n}日目',
-  pause:'一時停止（スペース）', play:'再開（スペース）', rotL:'視点を回す（Q）', rotR:'視点を回す（E）', soundOn:'サウンドをオン', soundOff:'ミュート', cityBtn:'都市パネルと需要',
+  pause:'一時停止（スペース）', play:'再開（スペース）', soundOn:'サウンドをオン', soundOff:'ミュート', cityBtn:'都市パネルと需要',
   settings:'設定', language:'言語', tips:'チュートリアルのヒント', reset:'最初からやり直す', resetConfirm:'もう一度押すと町が消えます', close:'閉じる', on:'オン', off:'オフ',
   cat_paths:'小道', cat_homes:'住宅', cat_shops:'商業', cat_industry:'工業', cat_services:'公共サービス', cat_green:'自然', cat_decor:'広場と小物',
   tool_select:'見る', tool_demolish:'取り壊す', locked:'ロック中', built:'建設済み', newb:'新着',
@@ -179,8 +179,7 @@ ja: {
   notEnough:'コインが足りません', blocked:'その場所は使われています', outside:'町の外です',
   cafeHeart:'カフェ・リモンは町の中心です。移動はできますが、取り壊せません。',
   placing:'クリックで配置 · R 回転 · Esc キャンセル', moving:'クリックで置く · Esc で元に戻す', demolishMode:'建物をクリックして取り壊し（半額返金）',
-  roadsHint:'押したままドラッグで小道を敷けます', help:'ドラッグ：移動 · ホイール：ズーム · Q/E：回転 · R：建物の向き · スペース：一時停止',
-  fx_well:'しあわせ +{n}', fx_inc:'収入 +{n}%', refunded:'{n} 返金',
+  roadsHint:'押したままドラッグで小道を敷けます', fx_well:'しあわせ +{n}', fx_inc:'収入 +{n}%', refunded:'{n} 返金',
   celebrate:'はレモンの木々に囲まれて花ざかりです', welcome:'ようこそ', migrated:'以前の町は Villa Limón に引っ越しました。',
   demand:'需要', dem_r:'住宅', dem_c:'商業', dem_i:'工業', cityPanel:'都市パネル',
   sec_people:'人口と雇用', sec_services:'サービス', sec_money:'財政', vacantHomes:'空き家', places:'人分', homeless:'住まいを探す住民',
@@ -242,11 +241,12 @@ ja: {
   n_flowerbed:'花壇', d_flowerbed:'玄関先の花。小さくても気づいてもらえます。',
   n_bench:'ベンチ', d_bench:'午後をながめて過ごす場所。',
   n_lamp:'街灯', d_lamp:'夕暮れのあたたかな明かり。お客さんが少し長居します。',
-  k_road:'小道', k_house:'住宅', k_shop:'商業', k_industry:'工業', k_service:'地域サービス', k_utility:'インフラ', k_nature:'緑地', k_deco:'飾り'
+  k_road:'小道', k_house:'住宅', k_shop:'商業', k_industry:'工業', k_service:'地域サービス', k_utility:'インフラ', k_nature:'緑地', k_deco:'飾り',
+  free:'無料', demolishSure:'取り壊す？', mode_normal:'通常', mode_sandbox:'サンドボックス', camView:'アイソメ / 3D 表示（V）', camReset:'カメラをリセット（C）', menuBtn:'メニュー（Esc）', rotL:'視点を左へ回す（Q）', rotR:'視点を右へ回す（E）', help:'ドラッグ：移動 · 右クリック/Alt＋ドラッグ：回転 · ホイール：ズーム · Shift＋ホイール：傾き · Q/E：回す · V：3D · C：中央へ', mascot_name:'リモニ', dm_no_cafe:'カフェ・リモンを置いて町をはじめましょう。', g0:'カフェ・リモンを置く', g0b:'最初の家をつなげる', menu_continue:'つづきから', menu_continue_hint:'あなたの町へ戻る', menu_new:'はじめから', menu_new_hint:'まっさらな地図とカフェから', menu_sandbox:'サンドボックス', menu_sandbox_hint:'すべて解放・費用なし', menu_sandbox_continue:'保存したサンドボックスを開く', menu_credits:'クレジット', menu_paused:'一時停止中', menu_resume:'ゲームに戻る', menu_sandbox_restart:'サンドボックスを空からやり直す', menu_main:'メインメニュー', menu_back:'戻る', set_sound:'サウンド', set_mascot:'リモニを表示', set_smooth:'なめらかなカメラ', set_controls:'カメラ：ドラッグで移動、右クリックまたは Alt＋ドラッグで回転、ホイールでズーム、Shift＋ホイールで傾き。タッチ：1本指で移動、2本指でズームと回転。V でアイソメと3D を切り替え、C でカメラを中央に戻します。', credits_text:'Villa Limón — レモネードと小さなものの町。\nデザイン、コード、プロシージャルモデル、リモニはこのプロジェクトのために制作。\nThree.js で描画 · フォント：Cormorant Garamond、Nunito、Pinyon Script（Google Fonts）。', confirm_title:'最初からはじめますか？', confirm_normal:'保存されたゲームがあります。新しくはじめると上書きされます。', confirm_sandbox:'保存したサンドボックスは消え、まっさらな地図からはじまります。', confirm_yes:'はい、はじめから', confirm_no:'キャンセル', m_menu:'こんにちは！リモニです。レモンの木のあいだに町をつくりませんか？', m_tut_explore:'ようこそ！まわりを見てみましょう。ドラッグで移動、ホイールでズーム、右クリックで回転できます。', m_tut_cafe:'町はおいしいカフェからはじまります。「商業」を開いてカフェ・リモンを置きましょう。無料です。', m_tut_road:'すてき！カフェのそばに小道を敷きましょう。「小道」を開いて入口からドラッグします。', m_tut_home:'ばっちり。「住宅」から、小道のそばに最初の家を置きましょう。', m_tut_connect:'その家はまだカフェにつながっていません。入口を小道につなげると住民がやって来ます。', m_tut_done:'住民がやって来ました！目標は自分のペースでどうぞ。困ったことがあれば知らせますね。', m_goal:'やったね：{goal}！', m_unlock:'カタログに追加：{types}。', m_no_road:'{building}からカフェへの小道がありません。つなげると動きはじめます。', m_utils:'水道・電気・ごみ処理が足りません。「公共サービス」を見てみて。', m_services:'近くに学校・診療所・安全のない家がたくさんあります。', m_jobs:'仕事のない住民がいます。工房やお店があると助かります。', m_vacant:'空き店舗があります。お店が需要より多いようです。', m_sandbox:'サンドボックスへようこそ！すべて解放されていて、費用もかかりません。好きなようにつくってね。', m_welcome_back:'おかえりなさい！町が待っていましたよ。'
 },
 zh: {
   town:'Villa Limón', subtitle:'柠檬水与小小美好', coins:'金币', residents:'居民', wellbeing:'幸福度', day:'第{n}天',
-  pause:'暂停（空格）', play:'继续（空格）', rotL:'旋转视角（Q）', rotR:'旋转视角（E）', soundOn:'开启声音', soundOff:'静音', cityBtn:'城镇面板与需求',
+  pause:'暂停（空格）', play:'继续（空格）', soundOn:'开启声音', soundOff:'静音', cityBtn:'城镇面板与需求',
   settings:'设置', language:'语言', tips:'教程提示', reset:'重新开始', resetConfirm:'再按一次将清空小镇', close:'关闭', on:'开', off:'关',
   cat_paths:'小路', cat_homes:'住宅', cat_shops:'商业', cat_industry:'工业', cat_services:'公共服务', cat_green:'自然', cat_decor:'广场与小物',
   tool_select:'浏览', tool_demolish:'拆除', locked:'未解锁', built:'已建造', newb:'新',
@@ -260,8 +260,7 @@ zh: {
   notEnough:'金币不足', blocked:'这里已被占用', outside:'超出小镇范围',
   cafeHeart:'柠檬咖啡馆是小镇的中心：可以移动，但不能拆除。',
   placing:'点击放置 · R 旋转 · Esc 取消', moving:'点击放下 · Esc 放回原处', demolishMode:'点击建筑将其拆除（返还一半）',
-  roadsHint:'按住并拖动来铺设小路', help:'拖动：平移 · 滚轮：缩放 · Q/E：旋转 · R：转向建筑 · 空格：暂停',
-  fx_well:'幸福度 +{n}', fx_inc:'收入 +{n}%', refunded:'返还 {n}',
+  roadsHint:'按住并拖动来铺设小路', fx_well:'幸福度 +{n}', fx_inc:'收入 +{n}%', refunded:'返还 {n}',
   celebrate:'在柠檬树间盛放', welcome:'欢迎来到', migrated:'你之前的小镇已迁到 Villa Limón。',
   demand:'需求', dem_r:'住宅', dem_c:'商业', dem_i:'工业', cityPanel:'城镇面板',
   sec_people:'人口与就业', sec_services:'服务', sec_money:'财政', vacantHomes:'空置住宅', places:'个空位', homeless:'正在找房的居民',
@@ -323,11 +322,12 @@ zh: {
   n_flowerbed:'花坛', d_flowerbed:'门边的花。虽小，却让人眼前一亮。',
   n_bench:'长椅', d_bench:'坐下来看午后时光流过的地方。',
   n_lamp:'路灯', d_lamp:'黄昏时的暖光，让客人多停留一会儿。',
-  k_road:'小路', k_house:'住宅', k_shop:'商业', k_industry:'工业', k_service:'社区服务', k_utility:'基础设施', k_nature:'绿地', k_deco:'装饰'
+  k_road:'小路', k_house:'住宅', k_shop:'商业', k_industry:'工业', k_service:'社区服务', k_utility:'基础设施', k_nature:'绿地', k_deco:'装饰',
+  free:'免费', demolishSure:'确定拆除？', mode_normal:'普通', mode_sandbox:'沙盒', camView:'等距 / 3D 视角（V）', camReset:'重置镜头（C）', menuBtn:'菜单（Esc）', rotL:'向左转动视角（Q）', rotR:'向右转动视角（E）', help:'拖动：平移 · 右键或 Alt＋拖动：环绕 · 滚轮：缩放 · Shift＋滚轮：俯仰 · Q/E：转动 · V：3D 视角 · C：居中', mascot_name:'莉蒙妮', dm_no_cafe:'放下柠檬咖啡馆，建立小镇。', g0:'放下柠檬咖啡馆', g0b:'连接第一座住宅', menu_continue:'继续', menu_continue_hint:'回到你的小镇', menu_new:'新游戏', menu_new_hint:'空白地图，从咖啡馆开始', menu_sandbox:'沙盒模式', menu_sandbox_hint:'全部解锁，免费建造', menu_sandbox_continue:'打开已保存的沙盒', menu_credits:'制作名单', menu_paused:'已暂停', menu_resume:'继续游戏', menu_sandbox_restart:'重新开始空白沙盒', menu_main:'主菜单', menu_back:'返回', set_sound:'声音', set_mascot:'显示莉蒙妮', set_smooth:'平滑镜头', set_controls:'镜头：拖动平移，右键或 Alt＋拖动环绕，滚轮缩放，Shift＋滚轮调整俯仰。触屏：单指平移，双指缩放和旋转。V 切换等距与 3D 视角，C 让镜头居中。', credits_text:'Villa Limón —— 一座柠檬水与小小美好的小镇。\n设计、代码、程序化模型与莉蒙妮均为本项目原创。\n使用 Three.js 渲染 · 字体：Cormorant Garamond、Nunito、Pinyon Script（Google Fonts）。', confirm_title:'重新开始？', confirm_normal:'你已有一个存档。开始新游戏会覆盖它。', confirm_sandbox:'已保存的沙盒将被清除，你会从空白地图开始。', confirm_yes:'是的，重新开始', confirm_no:'取消', m_menu:'你好！我是莉蒙妮。一起在柠檬树间建一座小镇吧？', m_tut_explore:'欢迎！先四处看看：拖动移动视角，用滚轮缩放，右键转动。', m_tut_cafe:'每座小镇都从一家好咖啡馆开始。打开「商业」，放下柠檬咖啡馆，它是免费的。', m_tut_road:'真漂亮！现在在咖啡馆旁铺一条小路：打开「小路」，从门口拖动。', m_tut_home:'很好。在「住宅」里，把第一座房子放在小路旁。', m_tut_connect:'那座房子还连不到咖啡馆。把它的门连上小路，居民就会来了。', m_tut_done:'居民来了！按自己的节奏完成目标吧，有需要照顾的地方我会告诉你。', m_goal:'做到了：{goal}！', m_unlock:'目录新增：{types}。', m_no_road:'{building}没有通往咖啡馆的小路。连上它才能运作。', m_utils:'供水、电力或垃圾收集不足。去「公共服务」看看吧。', m_services:'很多住宅附近没有学校、诊所或安全设施。', m_jobs:'有居民没有工作。开一间作坊或店铺会有帮助。', m_vacant:'有店铺空着：商业空间超过了需求。', m_sandbox:'沙盒模式！全部解锁，什么都不花钱。想建什么就建什么。', m_welcome_back:'欢迎回来！你的小镇一直在等你。'
 },
 ko: {
   town:'Villa Limón', subtitle:'레모네이드와 작은 것들', coins:'코인', residents:'주민', wellbeing:'행복', day:'{n}일째',
-  pause:'일시정지 (스페이스)', play:'계속 (스페이스)', rotL:'시점 회전 (Q)', rotR:'시점 회전 (E)', soundOn:'소리 켜기', soundOff:'음소거', cityBtn:'도시 패널과 수요',
+  pause:'일시정지 (스페이스)', play:'계속 (스페이스)', soundOn:'소리 켜기', soundOff:'음소거', cityBtn:'도시 패널과 수요',
   settings:'설정', language:'언어', tips:'튜토리얼 팁', reset:'처음부터 다시', resetConfirm:'한 번 더 누르면 마을이 지워집니다', close:'닫기', on:'켜기', off:'끄기',
   cat_paths:'길', cat_homes:'주택', cat_shops:'상업', cat_industry:'산업', cat_services:'공공 서비스', cat_green:'자연', cat_decor:'광장과 소품',
   tool_select:'둘러보기', tool_demolish:'철거', locked:'잠김', built:'건설됨', newb:'새로운',
@@ -341,8 +341,7 @@ ko: {
   notEnough:'코인이 부족해요', blocked:'이미 사용 중인 자리예요', outside:'마을 밖이에요',
   cafeHeart:'카페 리몬은 마을의 중심이에요. 옮길 수는 있지만 철거할 수는 없어요.',
   placing:'클릭해서 배치 · R 회전 · Esc 취소', moving:'클릭해서 내려놓기 · Esc 되돌리기', demolishMode:'건물을 클릭해서 철거 (절반 환불)',
-  roadsHint:'누른 채로 드래그해서 길을 깔아요', help:'드래그: 이동 · 휠: 확대 · Q/E: 회전 · R: 건물 방향 · 스페이스: 일시정지',
-  fx_well:'행복 +{n}', fx_inc:'수입 +{n}%', refunded:'{n} 환불',
+  roadsHint:'누른 채로 드래그해서 길을 깔아요', fx_well:'행복 +{n}', fx_inc:'수입 +{n}%', refunded:'{n} 환불',
   celebrate:'레몬나무 사이에 꽃이 피었어요', welcome:'환영합니다', migrated:'이전 마을이 Villa Limón으로 옮겨졌어요.',
   demand:'수요', dem_r:'주거', dem_c:'상업', dem_i:'산업', cityPanel:'도시 패널',
   sec_people:'인구와 일자리', sec_services:'서비스', sec_money:'재정', vacantHomes:'빈집', places:'자리', homeless:'집을 찾는 주민',
@@ -404,7 +403,8 @@ ko: {
   n_flowerbed:'화단', d_flowerbed:'문 앞의 꽃. 작아도 눈에 띄어요.',
   n_bench:'벤치', d_bench:'오후를 바라보며 쉬어 가는 자리.',
   n_lamp:'가로등', d_lamp:'해 질 녘의 따뜻한 빛. 손님이 조금 더 머물러요.',
-  k_road:'길', k_house:'주택', k_shop:'상업', k_industry:'산업', k_service:'지역 서비스', k_utility:'기반 시설', k_nature:'녹지', k_deco:'장식'
+  k_road:'길', k_house:'주택', k_shop:'상업', k_industry:'산업', k_service:'지역 서비스', k_utility:'기반 시설', k_nature:'녹지', k_deco:'장식',
+  free:'무료', demolishSure:'철거할까요?', mode_normal:'일반', mode_sandbox:'샌드박스', camView:'아이소메트릭 / 3D 보기 (V)', camReset:'카메라 초기화 (C)', menuBtn:'메뉴 (Esc)', rotL:'시점을 왼쪽으로 (Q)', rotR:'시점을 오른쪽으로 (E)', help:'드래그: 이동 · 우클릭/Alt+드래그: 회전 · 휠: 확대 · Shift+휠: 기울기 · Q/E: 돌리기 · V: 3D 보기 · C: 가운데로', mascot_name:'리모니', dm_no_cafe:'카페 리몬을 놓아 마을을 시작하세요.', g0:'카페 리몬 놓기', g0b:'첫 집 연결하기', menu_continue:'이어하기', menu_continue_hint:'내 마을로 돌아가기', menu_new:'새 게임', menu_new_hint:'빈 지도에서 카페부터', menu_sandbox:'샌드박스 모드', menu_sandbox_hint:'모두 해금, 비용 없음', menu_sandbox_continue:'저장된 샌드박스 열기', menu_credits:'크레딧', menu_paused:'일시정지', menu_resume:'계속하기', menu_sandbox_restart:'빈 샌드박스로 다시 시작', menu_main:'메인 메뉴', menu_back:'뒤로', set_sound:'소리', set_mascot:'리모니 보이기', set_smooth:'부드러운 카메라', set_controls:'카메라: 드래그로 이동, 우클릭 또는 Alt+드래그로 회전, 휠로 확대, Shift+휠로 기울기. 터치: 한 손가락으로 이동, 두 손가락으로 확대와 회전. V로 아이소메트릭과 3D를 바꾸고 C로 카메라를 가운데로 돌립니다.', credits_text:'Villa Limón — 레모네이드와 작은 것들의 마을.\n디자인, 코드, 절차적 모델, 리모니는 이 프로젝트를 위해 만들었어요.\nThree.js로 렌더링 · 글꼴: Cormorant Garamond, Nunito, Pinyon Script (Google Fonts).', confirm_title:'처음부터 시작할까요?', confirm_normal:'저장된 게임이 있어요. 새로 시작하면 덮어쓰게 돼요.', confirm_sandbox:'저장된 샌드박스가 지워지고 빈 지도에서 시작해요.', confirm_yes:'네, 처음부터', confirm_no:'취소', m_menu:'안녕! 나는 리모니야. 레몬나무 사이에 마을을 세워 볼까?', m_tut_explore:'환영해요! 먼저 둘러보세요. 드래그로 이동, 휠로 확대, 우클릭으로 돌릴 수 있어요.', m_tut_cafe:'모든 마을은 좋은 카페에서 시작해요. 「상업」을 열고 카페 리몬을 놓아 보세요. 무료예요.', m_tut_road:'예뻐요! 이제 카페 옆에 길을 깔아요. 「길」을 열고 문 앞에서 드래그하세요.', m_tut_home:'좋아요. 「주택」에서 첫 집을 길 옆에 놓아 보세요.', m_tut_connect:'그 집은 아직 카페와 이어지지 않았어요. 문을 길에 이으면 주민이 와요.', m_tut_done:'주민들이 왔어요! 목표는 천천히 즐기세요. 신경 쓸 일이 생기면 알려 줄게요.', m_goal:'해냈어요: {goal}!', m_unlock:'카탈로그에 추가: {types}.', m_no_road:'{building}에서 카페까지 길이 없어요. 이어 주면 일하기 시작해요.', m_utils:'수도, 전기 또는 쓰레기 수거가 부족해요. 「공공 서비스」를 확인해 보세요.', m_services:'학교, 의원, 안전 시설이 가까이 없는 집이 많아요.', m_jobs:'일자리가 없는 주민이 있어요. 공방이나 가게가 있으면 좋겠어요.', m_vacant:'빈 점포가 있어요. 가게가 수요보다 많아요.', m_sandbox:'샌드박스 모드예요! 모두 해금되어 있고 비용도 없어요. 마음껏 지어 보세요.', m_welcome_back:'다시 만나서 반가워요! 마을이 기다리고 있었어요.'
 }};
 let LANG = 'es';
 export const getLanguage = () => LANG;

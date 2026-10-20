@@ -5,6 +5,8 @@ export * from './domain/grid.js';
 export * from './simulation/index.js';
 export * from './goals/goals.js';
 export * from './commands/commands.js';
+export * from './tutorial/tutorial.js';
+export * from './mascot/advisor.js';
 export * from './persistence/save.js';
 export * from './util/random.js';
 export { clamp } from './util/math.js';

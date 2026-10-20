@@ -1,54 +1,47 @@
-// Input port: mouse, touch (pan and pinch), wheel and keyboard → camera moves, interaction intents and commands.
+// Input adapter: DOM pointer, wheel and keyboard events → gesture intents (presentation/input/gestures.js)
+// → camera controller, interaction and commands. It only translates; it holds no camera or game logic.
 import { CMD } from '../../core/commands/commands.js';
+import { createGestureTracker } from '../../presentation/input/gestures.js';
 
-export function bindInput({ canvas, view, interaction, game, audio, onCameraMoved }) {
-  const ptrs = new Map(), keys = new Set();
-  let drag = null, painting = false;
+export function bindInput({ canvas, interaction, camera, game, audio, isPlaying, onEscape }) {
+  const tracker = createGestureTracker(), keys = new Set();
+  const run = intents => { for (const it of intents) switch (it.type) {
+    case 'hover': interaction.pointerMove(it.x, it.y); break;
+    case 'pan': camera.pan(it.dx, it.dy, canvas.clientHeight); break;
+    case 'orbit': camera.orbit(it.dx, it.dy); break;
+    case 'pinch': camera.zoomBy(it.factor); break;
+    case 'twist': camera.orbitBy(-it.angle, 0); break;
+    case 'paint': interaction.paint(it.x, it.y, it.dragging); break;
+    case 'click': interaction.click(it.x, it.y, it.painted); break;
+    case 'cancel': interaction.cancel(); break;
+  } };
+  const pt = e => ({ id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, button: e.button, touch: e.pointerType === 'touch', alt: e.altKey, ctrl: e.ctrlKey || e.metaKey });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
-  canvas.addEventListener('pointerdown', e => {
-    audio.init(); canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; drag = { pinch: Math.hypot(a.x - b.x, a.y - b.y), z: view.rig.tzoom }; painting = false; return; }
-    drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, btn: e.button, moved: false };
-    if (e.button === 0 && interaction.startsPainting()) { painting = true; interaction.paint(e.clientX, e.clientY, false); }
-  });
-  canvas.addEventListener('pointermove', e => {
-    if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (drag && drag.pinch && ptrs.size === 2) { const [a, b] = [...ptrs.values()]; view.setZoom(drag.z * Math.hypot(a.x - b.x, a.y - b.y) / drag.pinch); onCameraMoved(); return; }
-    if (drag && !drag.pinch) {
-      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-      if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 5) drag.moved = true;
-      if (painting) interaction.paint(e.clientX, e.clientY, drag.moved);
-      else if (drag.moved) { view.pan(dx, dy); onCameraMoved(); }
-      drag.x = e.clientX; drag.y = e.clientY;
-    }
-    interaction.pointerMove(e.clientX, e.clientY);
-  });
+  canvas.addEventListener('pointerdown', e => { if (!isPlaying()) return; audio.init(); try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already-released pointer */ } run(tracker.down(pt(e), { paintMode: interaction.startsPainting() })); });
+  canvas.addEventListener('pointermove', e => { if (isPlaying()) run(tracker.move(pt(e))); });
+  canvas.addEventListener('pointerup', e => { if (isPlaying()) run(tracker.up(pt(e))); });
+  canvas.addEventListener('pointercancel', e => run(tracker.cancel(pt(e))));
   canvas.addEventListener('pointerleave', () => interaction.pointerLeave());
-  canvas.addEventListener('pointerup', e => {
-    ptrs.delete(e.pointerId); if (!drag) return;
-    const d = drag; if (ptrs.size === 0) drag = null; else if (d.pinch) { drag = null; return; }
-    if (d.pinch) return;
-    const wasPainting = painting; painting = false;
-    if (d.moved) return;
-    if (d.btn === 2) { interaction.cancel(); return; }
-    if (d.btn === 0) interaction.click(e.clientX, e.clientY, wasPainting);
-  });
-  canvas.addEventListener('pointercancel', e => { ptrs.delete(e.pointerId); drag = null; painting = false; });
   canvas.addEventListener('wheel', e => {
-    e.preventDefault(); onCameraMoved();
-    if (e.shiftKey) view.tilt(Math.sign(e.deltaY)); else view.zoomBy(Math.exp(-e.deltaY * .0012));
+    e.preventDefault(); if (!isPlaying()) return;
+    if (e.shiftKey) camera.tilt(Math.sign(e.deltaY || e.deltaX)); else camera.zoomBy(Math.exp(-e.deltaY * .0012));
   }, { passive: false });
   addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT') return;
-    const k = e.key.toLowerCase(); keys.add(k);
-    if (k === 'escape') interaction.cancel();
-    else if (k === 'q' || k === 'e') { view.rotate(k === 'q' ? -1 : 1); onCameraMoved(); }
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    const k = e.key.toLowerCase();
+    if (!isPlaying()) { if (k === 'escape') { e.preventDefault(); onEscape(); } return; }
+    keys.add(k);
+    if (k === 'escape') { if (!interaction.cancel()) onEscape(); }
+    else if (k === 'q' || k === 'e') camera.rotateStep(k === 'q' ? -1 : 1);
+    else if (k === 'c') camera.reset();
+    else if (k === 'v') camera.toggleMode();
     else if (k === 'r') interaction.rotate();
     else if (k === ' ') { e.preventDefault(); game.dispatch({ type: CMD.TogglePause }); }
     else if (k === '1' || k === '2' || k === '3') game.dispatch({ type: CMD.SetSpeed, speed: +k });
     else if (k === 'delete' || k === 'backspace') interaction.armDemolish();
   });
   addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+  addEventListener('blur', () => keys.clear());
   return {
     /** WASD / arrow keys held this frame, as a pan direction. */
     panDirection() {

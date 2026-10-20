@@ -14,7 +14,8 @@ const walkerGeos = [[C.lemonD, '#5b3e2c'], [C.teal, '#e0b066'], [C.limeD, '#3f2e
 });
 const PUFF_MAX = 160, PETALS = 60;
 
-export function createAmbient(scene, rig) {
+/** `focus` is a Vector3 kept at the camera's point of interest (petals drift around it). */
+export function createAmbient(scene, focus) {
   const walkers = [], puffs = [];
   const petals = new THREE.InstancedMesh(new THREE.PlaneGeometry(.06, .04), new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), PETALS);
   const pState = [], pcol = [C.white, '#fff4dc', C.leafL, C.leaf, C.lemon, C.lime].map(c => new THREE.Color(c));
@@ -29,7 +30,7 @@ export function createAmbient(scene, rig) {
     q.s.material.color.set(o.color || '#f2ebe0'); q.s.position.copy(p); q.s.visible = true;
   }
   function dust(pos, s) { for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; puff(pos.clone().add(new THREE.Vector3(Math.cos(a) * s * .5, .05, Math.sin(a) * s * .5)), { vx: Math.cos(a) * .5, vz: Math.sin(a) * .5, vy: .15, life: .8, s0: .15, grow: .4, a: .7, color: '#efe2c6' }); } }
-  function confetti() { const c = rig.target.clone(); for (let i = 0; i < 26; i++) puff(c.clone().add(new THREE.Vector3((Math.random() - .5) * 4, 1 + Math.random() * 2, (Math.random() - .5) * 4)), { color: [C.lemon, C.lime, C.white, C.leaf][i % 4], vy: .3, vx: (Math.random() - .5) * .6, life: 1.6, s0: .12, grow: .1, a: .9 }); }
+  function confetti() { const c = focus.clone(); for (let i = 0; i < 26; i++) puff(c.clone().add(new THREE.Vector3((Math.random() - .5) * 4, 1 + Math.random() * 2, (Math.random() - .5) * 4)), { color: [C.lemon, C.lime, C.white, C.leaf][i % 4], vy: .3, vx: (Math.random() - .5) * .6, life: 1.6, s0: .12, grow: .1, a: .9 }); }
 
   function pickNext(w, reach) {
     const [x, y] = w.cur, opts = [];
@@ -62,8 +63,8 @@ export function createAmbient(scene, rig) {
     for (let i = 0; i < PETALS; i++) { const s = pState[i];
       s.p.x += (.35 + Math.sin(time * .3 + s.ph) * .2) * dt * s.sp; s.p.z += .15 * dt * s.sp; s.p.y -= .12 * dt * s.sp; s.p.y += Math.sin(time * 2 + s.ph) * .004;
       s.r.x += dt * 2 * s.sp; s.r.y += dt * 1.3;
-      const lx = s.p.x - rig.target.x, lz = s.p.z - rig.target.z;
-      if (s.p.y < 0 || lx > 14 || lz > 14) s.p.set(rig.target.x - 13 + Math.random() * 10, 2 + Math.random() * 3, rig.target.z + (Math.random() - .5) * 26);
+      const lx = s.p.x - focus.x, lz = s.p.z - focus.z;
+      if (s.p.y < 0 || lx > 14 || lz > 14) s.p.set(focus.x - 13 + Math.random() * 10, 2 + Math.random() * 3, focus.z + (Math.random() - .5) * 26);
       _q.setFromEuler(s.r); _m4.compose(s.p, _q, _one); petals.setMatrixAt(i, _m4);
     }
     petals.instanceMatrix.needsUpdate = true;

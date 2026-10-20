@@ -16,7 +16,8 @@ const close = (a, b, path) => {
 
 function run() {
   const I = SCENARIO.initial;
-  const s = createEmptyState({ coins: I.coins, population: I.P, employed: I.E, demand: { ...I.dem } });
+  // the starter goals g0/g0b did not exist before the refactor: mark them done so they pay nothing here
+  const s = createEmptyState({ coins: I.coins, population: I.P, employed: I.E, demand: { ...I.dem }, goalsDone: ['g0', 'g0b'] });
   for (const [type, x, y, r, seed] of SCENARIO.start) insertBuilding(s, type, x, y, r, seed);
   const game = createGame({ state: s });
   const out = [];
@@ -35,7 +36,7 @@ test('refactored simulation matches the recorded pre-refactor behaviour', () => 
   golden.forEach((g, i) => {
     const { state, derived } = got[i].snap, c = derived.city, L = g.label;
     close(state.population, g.P, `${L} P`); close(state.employed, g.E, `${L} E`); close(state.coins, g.coins, `${L} coins`);
-    close(state.demand, g.dem, `${L} demand`); assert.deepEqual(state.goalsDone, g.done, `${L} goals`);
+    close(state.demand, g.dem, `${L} demand`); assert.deepEqual(state.goalsDone.filter(x => !['g0', 'g0b'].includes(x)), g.done, `${L} goals`);
     close({ Rcap: c.Rcap, homeless: c.homeless, J: c.J, W: c.W, PP: c.PP, shopCap: c.shopCap, goodsNeed: c.goodsNeed, prod: c.prod, sold: c.sold, exported: c.exported,
       income: c.income, upkeep: c.upkeep, net: c.net, well: c.well, svcScore: c.svcScore, utilMin: c.utilMin, vacantHomes: c.vacantHomes, vacantShops: c.vacantShops,
       idleInd: c.idleInd, util: c.util, target: c.target, reasons: c.reasons, attract: c.attract }, g.city, `${L} city`);

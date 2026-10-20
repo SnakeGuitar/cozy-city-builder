@@ -1,5 +1,6 @@
 // The build catalogue: tabs, tradition/era filters for homes, and item cards.
 import { CATS, DEFS, ERAS, FAMS } from '../../core/config/catalog.js';
+import { costFor, canAfford } from '../../core/commands/commands.js';
 import { $, ico, KIND_KEY } from './dom.js';
 import { t } from './i18n.js';
 
@@ -27,8 +28,8 @@ export function renderCatalog({ state }, prefs, unlocked, thumbs, activeType) {
     const d = DEFS[k], lock = !unlocked.has(k), isBuilt = d.unique && built.has(k);
     const badge = lock ? `<span class="badge lock">${t('locked')}</span>` : isBuilt ? `<span class="badge uniq">${t('built')}</span>` : prefs.newT.includes(k) ? `<span class="badge">${t('newb')}</span>` : '';
     const tag = d.fam ? '' : `<span class="tag kc-${d.kind}">${t(KIND_KEY[d.kind])}</span>`;
-    return `<button class="item ${activeType === k ? 'on' : ''} ${lock ? 'locked' : ''} ${!lock && !isBuilt && state.coins < d.cost ? 'poor' : ''} ${prefs.newT.includes(k) ? 'new' : ''}" data-type="${k}" title="${t('d_' + k)}">${badge}<span class="th"><img alt="" src="${thumbs[k] || ''}"></span>${tag}<span class="nm">${t('n_' + k)}</span><span class="meta">${metaOf(k)}</span><span class="pr">${lock ? ico('i-lock', '') : isBuilt ? '—' : `${ico('i-coin', '')}${d.cost}${d.upkeep ? `<small>−${d.upkeep}${t('perMin')}</small>` : ''}`}</span></button>`;
+    return `<button class="item ${activeType === k ? 'on' : ''} ${lock ? 'locked' : ''} ${!lock && !isBuilt && !canAfford(state, k) ? 'poor' : ''} ${prefs.newT.includes(k) ? 'new' : ''}" data-type="${k}" title="${t('d_' + k)}">${badge}<span class="th"><img alt="" src="${thumbs[k] || ''}"></span>${tag}<span class="nm">${t('n_' + k)}</span><span class="meta">${metaOf(k)}</span><span class="pr">${lock ? ico('i-lock', '') : isBuilt ? '—' : `${costFor(state, k) ? `${ico('i-coin', '')}${costFor(state, k)}` : t('free')}${d.upkeep ? `<small>−${d.upkeep}${t('perMin')}</small>` : ''}`}</span></button>`;
   }).join('') : `<div class="empty">${t('noMatch')}</div>`;
 }
 /** Cheap key that changes when the catalogue needs a redraw because affordability changed. */
-export const affordKey = ({ state }, prefs) => Object.keys(DEFS).filter(k => DEFS[k].cat === prefs.tab).map(k => state.coins >= DEFS[k].cost ? 1 : 0).join('');
+export const affordKey = ({ state }, prefs) => Object.keys(DEFS).filter(k => DEFS[k].cat === prefs.tab).map(k => canAfford(state, k) ? 1 : 0).join('');

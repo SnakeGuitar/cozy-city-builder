@@ -1,6 +1,6 @@
 // Panel for the selected building: what it does, its numbers, and who it affects.
 import { DEFS, SVC_GROUPS } from '../../core/config/catalog.js';
-import { refundOf } from '../../core/commands/commands.js';
+import { refundFor } from '../../core/commands/commands.js';
 import { $, ico, meter, pct, KIND_KEY } from './dom.js';
 import { t, fmt } from './i18n.js';
 
@@ -34,7 +34,7 @@ export function renderSelectionPanel({ state, derived }, id, confirmDemo, action
     ${rec2.length ? `<div class="rel"><h4>${t('receives')}</h4><ul>${rec2.join('')}</ul></div>` : ''}
     ${giv.length ? `<div class="rel"><h4>${t('gives')}</h4><ul>${giv.join('')}</ul></div>` : ''}
     <div class="actions"><button class="btn" id="p-move">${t('move')}</button><button class="btn" id="p-rot">${t('rotate')}</button>
-    ${b.type === 'cafe' ? '' : `<button class="btn ${confirmDemo ? 'red' : 'warn'}" id="p-demo">${confirmDemo ? t('demolishConfirm', { n: refundOf(b.type) }) : t('demolish')}</button>`}</div>`;
+    ${b.type === 'cafe' ? '' : `<button class="btn ${confirmDemo ? 'red' : 'warn'}" id="p-demo">${confirmDemo ? (refundFor(state, b.type) ? t('demolishConfirm', { n: refundFor(state, b.type) }) : t('demolishSure')) : t('demolish')}</button>`}</div>`;
   if (html === p._html) return; // unchanged: keep the DOM (and any click in progress)
   p._html = html; p.innerHTML = html;
   $('p-close').onclick = actions.close; $('p-move').onclick = actions.move; $('p-rot').onclick = actions.rotate;

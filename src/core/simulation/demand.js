@@ -6,7 +6,7 @@ export function computeDemand(m) {
   const jobsFree = m.jobs - m.workforce, vac = m.capacity ? (m.capacity - m.population) / m.capacity : 0;
   const r = [
     [clamp(jobsFree * 2.5, -35, 40), jobsFree > 0 ? (vac < .15 ? 'rs_jobs_free' : 'rs_jobs_pull') : 'rs_no_jobs'],
-    [(m.townWell - 55) * .6, m.townWell >= 55 ? 'rs_pleasant' : 'rs_unpleasant'],
+    [m.hasHomes === false ? 0 : (m.townWell - 55) * .6, m.townWell >= 55 ? 'rs_pleasant' : 'rs_unpleasant'], // no homes, no wellbeing to judge
     [-(1 - m.utilMin) * 50, 'rs_utils'],
     [m.population > 20 ? -(1 - m.serviceScore) * 20 : 0, 'rs_services'],
     [m.population < 12 ? 25 : 0, 'rs_start']];
@@ -20,7 +20,9 @@ export function computeDemand(m) {
     [!m.hasIndustry && m.population >= 8 ? 15 : 0, 'is_start']];
   const total = T => clamp(T.reduce((a, x) => a + x[0], 0), -100, 100);
   const why = (T, calm) => { const w = T.filter(x => Math.abs(x[0]) >= 3).sort((a, b) => Math.abs(b[0]) - Math.abs(a[0])).slice(0, 2).map(x => x[1]); return w.length ? w : [calm]; };
-  return { attract, terms: { r, c, i }, target: { r: total(r), c: total(c), i: total(i) }, reasons: { r: why(r, 'rs_balanced'), c: why(c, 'cs_covered'), i: why(i, 'is_balanced') } };
+  const reasons = m.hasCafe === false ? { r: ['dm_no_cafe'], c: ['dm_no_cafe'], i: ['dm_no_cafe'] } // nothing can grow before the café
+    : { r: why(r, 'rs_balanced'), c: why(c, 'cs_covered'), i: why(i, 'is_balanced') };
+  return { attract, terms: { r, c, i }, target: { r: total(r), c: total(c), i: total(i) }, reasons };
 }
 
 /** Demand eases 8 % toward its target each tick. */

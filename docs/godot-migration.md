@@ -18,7 +18,14 @@ These modules are plain data and functions. Port them one by one and run the sam
 | `core/commands/commands.js` | `Commands` script | Same command names and rejection reasons. |
 | `core/persistence/save.js` | `SaveFormat` script | Same JSON; keep the migration chain. |
 | `core/util/random.js` | Port `nextRandom` exactly (32-bit integer math with masks) | Same seed → same building seeds. |
+| `core/config/rules.js` | `GameRules` resources (`normal.tres`, `sandbox.tres`) | Keep the six flags; ask `rules_for(state)` in the same four places. |
+| `core/tutorial/tutorial.js` | `Tutorial` script; steps as an array of dictionaries with `Callable` checks | Same step ids and message ids. |
+| `core/mascot/advisor.js` | `Advisor` script | Same cooldowns in simulated seconds. |
 | `application/game.js` | An autoload singleton `Game` (Node) | Owns the state, the event queue and the clock accumulator. |
+| `application/navigation.js` | `Navigation` script, or a small state chart | Same screens; only `playing` runs `_process` ticks. |
+| `application/app.js` | Autoload `Session` | Two slots: `user://villa-limon.json`, `user://villa-limon-sandbox.json`. |
+| `presentation/camera/model.js` | `CameraState` resource + pure functions | Same limits; drive a `Camera3D` from the visual state. |
+| `presentation/input/gestures.js` | Logic inside the input handler | Godot gives `InputEventMagnifyGesture`/`InputEventPanGesture`; keep the "multi-touch never builds" rule. |
 
 How to check the port:
 
@@ -39,7 +46,10 @@ Watch for: `Math.round` (JS rounds .5 up; use `floor(x + 0.5)`), integer divisio
 | `platform/web/input.js` | `_unhandled_input` plus Input Map actions (`pan`, `zoom`, `rotate_view`, `rotate_building`, `cancel`, `pause`, `speed_1..3`, `demolish`). |
 | `platform/web/main.js` frame loop | `_process(delta)` on the `Game` autoload: `game.step(min(delta, 0.05))`. |
 | `ui/dom/*` | `Control` scenes: HUD, catalogue (`ItemList`/`GridContainer`), selection panel, city panel, goals, hints, settings. |
-| `ui/dom/i18n.js` | `TranslationServer` with a `.csv` or `.po` per language, same keys. |
+| `ui/dom/i18n.js` | `TranslationServer` with a `.csv` or `.po` per language, same keys (including Limoni's `m_*` lines). |
+| `ui/dom/menu.js` | A `MainMenu` scene (Continue, New game, Sandbox, Settings, Credits) with focus neighbours for keyboard/gamepad. |
+| `ui/dom/mascot/*` | A `Limoni` scene: `AnimatedSprite2D`/`AnimationPlayer` with one animation per mood (`wave`, `happy`, `point`, `think`, `cheer`, `alert`) and a speech `RichTextLabel`. Replace `assets.js` by this scene; keep `nameKey` and moods. |
+| `rendering/three/cameraRig.js` | `Camera3D` with `projection = PROJECTION_ORTHOGONAL` for iso and `PROJECTION_PERSPECTIVE` for 3D; tween `fov` and distance for the dolly-zoom switch. |
 | `ui/interaction.js` | A `ToolController` node: same states and the same calls to `Game.dispatch`. |
 
 ## 3. Commands and events → calls and signals
@@ -58,6 +68,9 @@ Watch for: `Math.round` (JS rounds .5 up; use `floor(x + 0.5)`), integer divisio
 | `goal_completed`, `types_unlocked` | same names | Goals panel, catalogue, audio, confetti |
 | `clock_changed`, `day_changed`, `tick` | same names | HUD, light cycle |
 | `command_rejected` | `command_rejected(command, reason)` | Tooltip, toasts |
+| `mascot_message_requested` | `mascot_message(message_id, mood, params, sticky)` | Limoni scene |
+| `tutorial_step_completed` | `tutorial_step_completed(step_id)` | Save, analytics |
+| `nav_changed`, `session_started` (app) | `screen_changed(screen)`, `session_started(mode, reason)` | Menus, camera restore |
 | `state_replaced` | `state_replaced()` | World rebuild |
 
 Keep the payloads as plain values; never pass nodes through the rules.
@@ -75,7 +88,7 @@ Keep the payloads as plain values; never pass nodes through the rules.
 
 ## 5. Saves
 
-The JSON document (`{ v: 3, game, ui }`) needs no change. Port `migrateSave` and `normalizeGame` and keep
+The JSON document (`{ v: 4, mode, game, ui }`) needs no change; keep normal and sandbox in separate files. Port `migrateSave` and `normalizeGame` and keep
 the version chain; add `4: …` the first time the format changes. Two options for players coming from the web:
 
 1. Import: a menu entry that reads a pasted or uploaded JSON save and runs the same migrations.

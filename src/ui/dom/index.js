@@ -1,10 +1,10 @@
-// The DOM front end: wires panels and buttons to the game and reacts to core events.
-// Reads snapshots, sends commands through the interaction controller or game.dispatch; never edits state.
+// The DOM front end: wires panels and buttons to the app and reacts to core events.
+// Reads snapshots and rules, sends commands through the interaction controller or game.dispatch; never edits state.
 import { CATS, DEFS, FAMS, ERAS } from '../../core/config/catalog.js';
 import { GOALS } from '../../core/config/goals.js';
 import { CMD } from '../../core/commands/commands.js';
 import { $, ico, bump } from './dom.js';
-import { LANGS, STR, setLanguage, t } from './i18n.js';
+import { STR, setLanguage, t } from './i18n.js';
 import { toast } from './toasts.js';
 import { createWorldLabels } from './worldLabels.js';
 import { renderHud, renderLight } from './hud.js';
@@ -12,34 +12,40 @@ import { renderCityPanel } from './cityPanel.js';
 import { renderGoals } from './goalsView.js';
 import { renderCatalog, affordKey } from './catalog.js';
 import { renderSelectionPanel, relationLinks } from './selectionPanel.js';
-import { renderSettings } from './settings.js';
-import { renderHint } from './hints.js';
+import { createMascot } from './mascot/mascot.js';
 
-/** UI preferences live in the save's `ui` section. Untrusted input is normalised here. */
-export function normalizePrefs(ui = {}, fallbackLang = 'es') {
-  const tut = ui.tut && typeof ui.tut === 'object' ? ui.tut : {};
-  const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+/** Global player settings (saved apart from any game). Untrusted input is normalised here. */
+export function normalizeSettings(raw = {}, fallbackLang = 'es', reducedMotion = false) {
   return {
-    lang: STR[ui.lang] ? ui.lang : (STR[fallbackLang] ? fallbackLang : 'es'),
-    muted: !!ui.muted, tips: ui.tips !== false,
-    tut: { moved: !!tut.moved, age: num(tut.age, 0), free: num(tut.free, 0), city: !!tut.city },
+    lang: STR[raw.lang] ? raw.lang : (STR[fallbackLang] ? fallbackLang : 'es'),
+    muted: !!raw.muted,
+    mascot: raw.mascot !== undefined ? raw.mascot !== false : raw.tips !== false,     // v3 called it "tips"
+    smoothCamera: typeof raw.smoothCamera === 'boolean' ? raw.smoothCamera : !reducedMotion,
+  };
+}
+/** Per-game UI data (saved in that game's slot): catalogue tab and filters, "new" badges. The camera is saved next to it. */
+export function normalizeSlotUi(ui = {}) {
+  return {
     tab: CATS.includes(ui.tab) ? ui.tab : 'homes',
     filt: { fam: [...FAMS, 'all'].includes(ui.filt?.fam) ? ui.filt.fam : 'all', era: [...ERAS, 'all'].includes(ui.filt?.era) ? ui.filt.era : 'all' },
     newT: Array.isArray(ui.newT) ? ui.newT.filter(k => DEFS[k]) : [],
-    cam: Array.isArray(ui.cam) && ui.cam.length === 4 && ui.cam.every(Number.isFinite) ? ui.cam : null,
   };
 }
 
-export function createDomUI({ game, view, interaction, prefs, audio, thumbs, onNewGame, requestSave }) {
+export function createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave }) {
+  const game = app.game;
   const labels = createWorldLabels(view);
+  const mascot = createMascot(settings);
   const justDone = new Map(), income = new Map();
-  let resetArmed = false, tickCount = 0, lastAfford = '', slowTimer = 0;
+  let tickCount = 0, lastAfford = '';
   const snap = () => game.getSnapshot();
+  const rules = () => game.rules();
   const activeType = () => ['build', 'move'].includes(interaction.tool.kind) ? interaction.tool.type : null;
 
   // ---------------------------------------------------------------- render helpers
-  const catalog = () => renderCatalog(snap(), prefs, game.unlocked(), thumbs, activeType());
-  const settings = () => renderSettings(prefs, resetArmed, settingsActions);
+  const hud = () => renderHud(snap(), settings, rules());
+  const catalog = () => renderCatalog(snap(), slot, game.unlocked(), thumbs, activeType());
+  const goals = () => renderGoals(snap(), justDone, performance.now(), rules().goalsEnabled);
   const panel = () => renderSelectionPanel(snap(), interaction.selected, interaction.confirmDemo, {
     close: () => interaction.select(0), move: () => interaction.startMove(interaction.selected), rotate: () => interaction.rotate(), demolish: () => interaction.demolishSelected() });
   function relations() {
@@ -52,86 +58,77 @@ export function createDomUI({ game, view, interaction, prefs, audio, thumbs, onN
   function toolButtons() { $('t-select').classList.toggle('on', interaction.tool.kind === 'select'); $('t-demolish').classList.toggle('on', interaction.tool.kind === 'demolish'); }
   function renderAll() {
     const s = snap();
-    renderHud(s, prefs); catalog(); renderGoals(s, justDone, performance.now()); panel(); renderCityPanel(s); renderHint(s, prefs, true); settings();
-    labels.badges(s.state, s.derived); relations(); toolButtons();
+    hud(); catalog(); goals(); panel(); renderCityPanel(s);
+    labels.badges(s.state, s.derived); relations(); toolButtons(); mascot.refresh();
   }
   function applyLanguage(l) {
-    prefs.lang = setLanguage(l); document.documentElement.lang = prefs.lang;
+    settings.lang = setLanguage(l); document.documentElement.lang = settings.lang;
     document.querySelectorAll('[data-i]').forEach(el => el.textContent = t(el.dataset.i));
     document.querySelectorAll('[data-t]').forEach(el => { el.title = t(el.dataset.t); el.setAttribute('aria-label', el.title); });
     renderAll();
   }
 
   // ---------------------------------------------------------------- buttons
-  const settingsActions = {
-    language: l => { applyLanguage(l); requestSave(); }, close: () => { $('settings').hidden = true; resetArmed = false; },
-    tips: () => { prefs.tips = !prefs.tips; prefs.tut.free = 0; renderHint(snap(), prefs, true); settings(); requestSave(); },
-    sound: () => { audio.init(); prefs.muted = !prefs.muted; audio.setMuted(prefs.muted); renderHud(snap(), prefs); settings(); requestSave(); },
-    reset: () => { if (!resetArmed) { resetArmed = true; settings(); return; } resetArmed = false; $('settings').hidden = true; onNewGame(); },
-  };
-  $('tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (!b) return; prefs.tab = b.dataset.cat; audio.click(); catalog(); requestSave(); });
-  $('filters').addEventListener('click', e => { const b = e.target.closest('.fchip'); if (!b) return; if (b.dataset.fam) prefs.filt.fam = b.dataset.fam; if (b.dataset.era) prefs.filt.era = b.dataset.era; audio.click(); catalog(); requestSave(); });
+  $('tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (!b) return; slot.tab = b.dataset.cat; audio.click(); catalog(); requestSave(); });
+  $('filters').addEventListener('click', e => { const b = e.target.closest('.fchip'); if (!b) return; if (b.dataset.fam) slot.filt.fam = b.dataset.fam; if (b.dataset.era) slot.filt.era = b.dataset.era; audio.click(); catalog(); requestSave(); });
   $('items').addEventListener('click', e => {
     const it = e.target.closest('.item'); if (!it) return; audio.init(); const k = it.dataset.type;
     if (!game.unlocked().has(k)) { const g = GOALS.find(g => g.unlock.includes(k)); toast(`${ico('i-lock')} ${t('locked')} · ${t('goals')}: ${g ? t(g.id) : ''}`); return; }
-    if (DEFS[k].unique) { const b = Object.values(snap().state.buildings).find(b => b.type === k); if (b) { view.focusBuilding(b); interaction.setTool({ kind: 'select' }); interaction.select(b.id); return; } }
-    if (prefs.newT.includes(k)) { prefs.newT = prefs.newT.filter(x => x !== k); requestSave(); }
+    if (DEFS[k].unique) { const b = Object.values(snap().state.buildings).find(b => b.type === k); if (b) { const c = view.centerOf(b); camera.focus(c.x, c.z); interaction.setTool({ kind: 'select' }); interaction.select(b.id); return; } }
+    if (slot.newT.includes(k)) { slot.newT = slot.newT.filter(x => x !== k); requestSave(); }
     interaction.buildType(k); audio.click();
   });
   $('t-select').onclick = () => interaction.setTool({ kind: 'select' });
   $('t-demolish').onclick = () => { interaction.select(0); interaction.setTool({ kind: interaction.tool.kind === 'demolish' ? 'select' : 'demolish' }); };
   $('b-pause').onclick = () => game.dispatch({ type: CMD.TogglePause });
   for (const n of [1, 2, 3]) $('b-s' + n).onclick = () => game.dispatch({ type: CMD.SetSpeed, speed: n });
-  $('b-rl').onclick = () => { view.rotate(-1); prefs.tut.moved = true; }; $('b-rr').onclick = () => { view.rotate(1); prefs.tut.moved = true; };
-  $('b-snd').onclick = settingsActions.sound;
-  $('b-set').onclick = () => { $('settings').hidden = !$('settings').hidden; settings(); };
-  $('b-city').onclick = () => { const el = $('city'); el.hidden = !el.hidden; if (!el.hidden) { $('settings').hidden = true; prefs.tut.city = true; renderHint(snap(), prefs); } renderCityPanel(snap()); };
-  $('hint-x').onclick = () => { prefs.tips = false; renderHint(snap(), prefs); requestSave(); };
+  $('b-rl').onclick = () => camera.rotateStep(-1); $('b-rr').onclick = () => camera.rotateStep(1);
+  $('b-view').onclick = () => camera.toggleMode(); $('b-camreset').onclick = () => camera.reset();
+  $('b-snd').onclick = () => { audio.init(); settings.muted = !settings.muted; audio.setMuted(settings.muted); hud(); requestSave(); };
+  $('b-city').onclick = () => { const el = $('city'); el.hidden = !el.hidden; renderCityPanel(snap()); };
 
   // ---------------------------------------------------------------- reacting to core events
   function onEvents(events) {
     if (!events.length) return;
     const { state } = snap(); let structural = false, tickHappened = false;
     for (const e of events) switch (e.type) {
-      case 'building_placed': structural = true; e.buildingType === 'road' ? audio.tick() : audio.place(); if (prefs.newT.includes(e.buildingType)) prefs.newT = prefs.newT.filter(x => x !== e.buildingType); break;
-      case 'building_removed': structural = true; audio.remove(); labels.floater(view.topOf({ type: e.buildingType, x: e.x, y: e.y }, -.45), `${t('refunded', { n: e.refund })} ${ico('i-coin', '')}`, '', 1.4); income.delete(e.id); break;
+      case 'building_placed': structural = true; e.buildingType === 'road' ? audio.tick() : audio.place(); if (slot.newT.includes(e.buildingType)) slot.newT = slot.newT.filter(x => x !== e.buildingType); break;
+      case 'building_removed': structural = true; audio.remove(); if (e.refund) labels.floater(view.topOf({ type: e.buildingType, x: e.x, y: e.y }, -.45), `${t('refunded', { n: e.refund })} ${ico('i-coin', '')}`, '', 1.4); income.delete(e.id); break;
       case 'building_moved': structural = true; audio.place(); break;
       case 'building_rotated': structural = true; audio.click(); break;
-      case 'clock_changed': case 'day_changed': renderHud(snap(), prefs); break;
+      case 'clock_changed': case 'day_changed': hud(); break;
       case 'income_earned': { const p = income.get(e.id) || { amount: 0, ticks: 3 + Math.random() * 4 }; p.amount += e.amount; income.set(e.id, p); break; }
       case 'population_changed': if (e.delta > 0) { const homes = Object.values(snap().derived.byId).filter(b => b.kind === 'house' && b.occ > 0); if (homes.length) labels.floater(view.topOf(state.buildings[homes[Math.floor(Math.random() * homes.length)].id]), `+1 ${ico('i-pop', '')}`, 'well', 1.4); bump('c-pop'); } break;
-      case 'goal_completed': justDone.set(e.goalId, performance.now()); toast(`${ico('i-leaf')} ${t('goalDone')}: ${t(e.goalId)} · +${e.reward} ${ico('i-coin')}`); audio.unlock();
+      case 'goal_completed': justDone.set(e.goalId, performance.now()); toast(`${ico('i-leaf')} ${t('goalDone')}: ${t(e.goalId)}${e.reward ? ` · +${e.reward} ${ico('i-coin')}` : ''}`); audio.unlock();
         if (e.goalId === 'g7') setTimeout(() => toast(`<b>${t('town')}</b> ${t('celebrate')}`, 'big', 6000), 1200); requestSave(); break;
-      case 'types_unlocked': prefs.newT.push(...e.types.filter(x => !prefs.newT.includes(x))); prefs.tab = DEFS[e.types[0]].cat;
-        setTimeout(() => toast(`${ico('i-blossom')} ${t('unlockedX', { x: e.types.map(u => t('n_' + u)).join(', ') })}`, '', 4500), 700); catalog(); break;
+      case 'types_unlocked': slot.newT.push(...e.types.filter(x => !slot.newT.includes(x))); slot.tab = DEFS[e.types[0]].cat; catalog(); break;
+      case 'mascot_message_requested': mascot.show(e); break;
+      case 'tutorial_step_completed': requestSave(); break;
       case 'command_rejected': if (e.reason === 'cafeHeart') toast(t('cafeHeart')); else if (e.reason === 'notEnough') $('tip').animate([{ opacity: .4 }, { opacity: 1 }], { duration: 250 }); break;
-      case 'state_replaced': income.clear(); justDone.clear(); interaction.select(0); interaction.setTool({ kind: 'select' }); renderAll(); break;
+      case 'state_replaced': income.clear(); justDone.clear(); mascot.clear(); interaction.select(0); interaction.setTool({ kind: 'select' }); $('city').hidden = true; renderAll(); break;
       case 'tick': tickHappened = true; break;
     }
     if (tickHappened) {
       tickCount++;
       for (const [id, p] of income) if ((p.ticks -= 1) <= 0) { p.ticks = 5 + Math.random() * 3; const b = state.buildings[id]; if (b && p.amount >= 1) { labels.floater(view.topOf(b, .2), `+${Math.round(p.amount)} ${ico('i-coin', '')}`); bump('c-coins'); audio.coin(); } p.amount = 0; }
-      const s = snap(); renderHud(s, prefs); panel(); renderCityPanel(s);
+      const s = snap(); hud(); panel(); renderCityPanel(s);
       if (interaction.selected && tickCount % 4 === 0) relations();
       if (tickCount % 3 === 0) labels.badges(s.state, s.derived);
     }
-    if (structural) { const s = snap(); renderHud(s, prefs); panel(); renderCityPanel(s); renderGoals(s, justDone, performance.now()); renderHint(s, prefs); labels.badges(s.state, s.derived); relations(); requestSave(); }
+    if (structural) { const s = snap(); hud(); panel(); renderCityPanel(s); goals(); labels.badges(s.state, s.derived); relations(); catalog(); requestSave(); }
   }
-  setInterval(() => renderGoals(snap(), justDone, performance.now()), 1500);
+  setInterval(goals, 1500);
+  let slow = 0;
 
   return {
-    renderAll, applyLanguage, onEvents, toast,
+    renderAll, applyLanguage, onEvents, toast, mascot,
+    /** The per-slot UI object was replaced (another game was opened). */
+    setSlot(next) { Object.keys(slot).forEach(k => delete slot[k]); Object.assign(slot, next); catalog(); },
     /** Interaction changed tool or selection. */
     onInteraction(kind) { if (kind === 'tool') { catalog(); toolButtons(); } if (kind === 'selection') { panel(); relations(); if (interaction.selected) audio.click(); } },
     frame(dt, light) {
       labels.update(dt); renderLight(light);
-      prefs.tut.age += dt; if (snap().state.goalsDone.includes('g3')) prefs.tut.free += dt;
-      if ((slowTimer += dt) > 5) { slowTimer = 0; renderHint(snap(), prefs); const k = affordKey(snap(), prefs); if (k !== lastAfford) { lastAfford = k; catalog(); } }
-    },
-    welcome(migratedFrom) {
-      toast(`${t('welcome')} <b style="font-family:var(--f-script);font-weight:400;font-size:22px;color:var(--leaf-deep)">${t('town')}</b>`);
-      if (migratedFrom && migratedFrom < 2) setTimeout(() => toast(t('migrated')), 1500);
+      if ((slow += dt) > 5) { slow = 0; const k = affordKey(snap(), slot); if (k !== lastAfford) { lastAfford = k; catalog(); } }
     },
   };
 }
-export { LANGS };

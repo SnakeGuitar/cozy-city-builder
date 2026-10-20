@@ -1,6 +1,7 @@
 // Committing derived results back into the state. These are the only simulation functions that mutate.
 import { DEFS } from '../config/catalog.js';
 import { easeDemand, nextPopulation } from './demand.js';
+import { rulesFor } from '../config/rules.js';
 /** One simulated second. `derived` must come from computeDerived(state, { mode: 'tick' }). Returns events. */
 export function applyTick(state, derived) {
   if (derived.mode !== 'tick') throw new Error('applyTick needs a derived snapshot computed in tick mode');
@@ -9,7 +10,7 @@ export function applyTick(state, derived) {
   state.employed = derived.employed;
   state.demand = easeDemand(state.demand, derived.city.target);
   state.population = nextPopulation(state.population, derived.city.attract, derived.city.Rcap);
-  state.coins = Math.max(0, state.coins + derived.city.net / 60);
+  if (!rulesFor(state).unlimitedMoney) state.coins = Math.max(0, state.coins + derived.city.net / 60); // sandbox money never runs out
   for (const rec of Object.values(derived.byId)) {
     const b = state.buildings[rec.id]; if (!b) continue;
     if (rec.kind === 'shop' && rec.conn) b.open = rec.open;

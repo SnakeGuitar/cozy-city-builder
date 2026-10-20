@@ -34,7 +34,7 @@ test('v2 saves load: ids, positions, prefs and progress survive', () => {
   const { state, ui, from, warnings } = loadSave(raw);
   assert.equal(from, 2); assert.deepEqual(warnings, []);
   assert.equal(state.coins, 1472.5); assert.equal(state.population, 40.2); assert.equal(state.employed, 23.1);
-  assert.deepEqual(state.goalsDone, ['g1', 'g2', 'g4']);
+  assert.deepEqual(state.goalsDone, ['g0', 'g0b', 'g1', 'g2', 'g4'], 'older towns skip the starter goals');
   assert.equal(state.clock.speed, 3); assert.equal(state.clock.day, 2);
   assert.equal(Object.keys(state.buildings).length, raw.b.length);
   for (const o of raw.b) { const b = state.buildings[o.id]; assert.equal(b.type, o.t); assert.equal(b.x, o.x); assert.equal(b.y, o.y); assert.equal(b.r, o.r); assert.equal(b.seed, o.s); }
@@ -47,7 +47,7 @@ test('v1 Strawberry Borough saves migrate through v2 to the current version', ()
   assert.equal(from, 1); assert.deepEqual(warnings, []);
   const types = Object.values(state.buildings).filter(b => b.type !== 'road').map(b => b.type).sort();
   assert.deepEqual(types, ['cafe', 'fr_cont', 'fr_trad', 'fr_trad', 'orchard', 'tree']);
-  assert.deepEqual(state.goalsDone, ['g1', 'g2'], 'v1 g4 meant something else');
+  assert.deepEqual(state.goalsDone, ['g0', 'g0b', 'g1', 'g2'], 'v1 g4 meant something else');
   assert.equal(state.population, 9); assert.equal(state.coins, 777); assert.equal(state.clock.speed, 2);
   assert.equal(ui.lang, 'en');
   assert.deepEqual(Object.keys(state.buildings).map(Number).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
@@ -59,6 +59,7 @@ test('damaged saves are rejected or normalised safely', () => {
   assert.throws(() => loadSave(null)); assert.throws(() => loadSave({})); assert.throws(() => loadSave({ v: 99, game: {} }));
   assert.throws(() => loadSave({ v: 2 }), /without buildings/);
   const { state, warnings } = normalizeGame({
+    mode: 'banana', tutorial: { step: 'nope', signals: ['ok', 42, 'Bad Signal'] },
     coins: 'lots', population: -5, employed: NaN, demand: { r: 900 }, clock: { time: 4, speed: 9, day: -2 }, goalsDone: ['g1', 'bogus', 'g1'], nextId: 2,
     buildings: [null, { type: 'castle', x: 1, y: 1 }, { type: 'fr_trad', x: 1.5, y: 1 }, { type: 'fr_trad', x: 30, y: 1, id: 3 },
       { id: 5, type: 'fr_trad', x: 2, y: 2, r: 7, seed: -3 }, { id: 5, type: 'fr_trad', x: 4, y: 4 }, { id: 9, type: 'jp_trad', x: 2, y: 2 },
@@ -66,6 +67,7 @@ test('damaged saves are rejected or normalised safely', () => {
   assert.equal(state.coins, 0); assert.equal(state.population, 0); assert.equal(state.employed, 0);
   assert.equal(state.demand.r, 100); assert.ok(state.clock.time < 1); assert.equal(state.clock.speed, 1); assert.equal(state.clock.day, 1);
   assert.deepEqual(state.goalsDone, ['g1']);
+  assert.equal(state.mode, 'normal'); assert.deepEqual(state.tutorial, { step: 'done', signals: ['ok'] });
   const list = Object.values(state.buildings).sort((a, b) => a.id - b.id);
   assert.deepEqual(list.map(b => [b.type, b.x, b.y]), [['fr_trad', 2, 2], ['cafe', 10, 11], ['fr_trad', 6, 6], ['fr_trad', 4, 4]]);
   const h = list[0]; assert.equal(h.r, 0); assert.equal(h.seed, 0);
@@ -78,8 +80,8 @@ test('damaged saves are rejected or normalised safely', () => {
   assert.doesNotThrow(() => computeDerived(state));
 });
 
-test('a save without a café gets one back', () => {
-  const { state, warnings } = normalizeGame({ buildings: [{ id: 1, type: 'road', x: 0, y: 0 }] });
+test('an old (≤ v3) save without a café is damaged and gets one back', () => {
+  const { state, warnings } = normalizeGame({ buildings: [{ id: 1, type: 'road', x: 0, y: 0 }] }, { repairLandmark: true });
   assert.ok(Object.values(state.buildings).some(b => b.type === 'cafe'));
   assert.ok(warnings.some(w => /café/.test(w)));
 });

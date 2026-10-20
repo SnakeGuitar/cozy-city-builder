@@ -1,5 +1,6 @@
-// Zero-dependency static server for development. / serves src/index.html, which loads src/ as native ES modules
-// (no build needed). The built page is at /index.html.
+// Zero-dependency static server for development. The page is served at / (from src/index.html), so its relative
+// paths (./src/..., ./node_modules/...) resolve from the repository root; there is no build step. The built page is
+// at /index.html. Open http://localhost:8766/ (not /src/index.html).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';

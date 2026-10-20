@@ -1,35 +1,53 @@
 // The game controller: the single boundary between the rules (core/) and any front end.
 // A front end sends commands, advances time, reads snapshots and drains plain-data events.
 import { DAY_LENGTH, TICK_SECONDS } from '../core/config/world.js';
+import { rulesFor } from '../core/config/rules.js';
 import { createNewGameState } from '../core/domain/state.js';
-import { insertBuilding } from '../core/domain/grid.js';
 import { computeDerived, applyTick, commitMemory } from '../core/simulation/index.js';
 import { completeGoals, unlockedTypes } from '../core/goals/goals.js';
-import { executeCommand, STRUCTURAL } from '../core/commands/commands.js';
+import { executeCommand, STRUCTURAL, CMD } from '../core/commands/commands.js';
+import { advanceTutorial, tutorialMessage, needsRoad } from '../core/tutorial/tutorial.js';
+import { adviseNow } from '../core/mascot/advisor.js';
 import { serializeGame } from '../core/persistence/save.js';
 
-export const newGameState = () => createNewGameState(insertBuilding);
+export const newGameState = (mode = 'normal') => createNewGameState(mode);
+const NO_ROAD_REMINDER = 15; // simulated seconds between "this needs a road" reminders after placing
 
 /**
- * @param {{ state?: object }} [options] start from a given state (e.g. a loaded save) or a new game
- * @returns the game API: dispatch, step, tick, getSnapshot, drainEvents, serialize, unlocked, replaceState
+ * @param {{ state?: object }} [options] start from a given state (e.g. a loaded save) or a new empty normal game
+ * @returns the game API: dispatch, step, tick, getSnapshot, drainEvents, serialize, unlocked, rules, replaceState
  */
 export function createGame({ state } = {}) {
   let s = state || newGameState();
-  let derived = null, accumulator = 0;
+  let derived = null, accumulator = 0, simSeconds = 0;
+  let advice = { now: 0, last: -Infinity, lastById: {} };
   const queue = [];
-  const emit = list => { for (const e of list) queue.push(e); };
+  const emit = list => { for (const e of list) if (e) queue.push(e); };
 
-  // the town settles after any structural change: memory is committed and goals are checked
-  function settle() { const d = computeDerived(s); commitMemory(s, d); derived = d; emit(completeGoals(s, d)); }
-  function tick() { const d = computeDerived(s, { mode: 'tick' }); emit(applyTick(s, d)); derived = d; emit(completeGoals(s, d)); emit([{ type: 'tick' }]); }
+  // the town settles after any structural change: memory is committed, goals and tutorial are checked
+  function settle() { const d = computeDerived(s); commitMemory(s, d); derived = d; emit(completeGoals(s, d)); emit(advanceTutorial(s, d)); }
+  function tick() {
+    const d = computeDerived(s, { mode: 'tick' }); emit(applyTick(s, d)); derived = d;
+    emit(completeGoals(s, d)); emit(advanceTutorial(s, d));
+    simSeconds += TICK_SECONDS; advice.now = simSeconds;
+    if (s.tutorial.step === 'done') { const r = adviseNow(s, d, advice); advice = r.memory; emit([r.event]); }
+    emit([{ type: 'tick' }]);
+  }
+  function remindRoad(res) {
+    const rec = res.ok && derived.byId[res.id];
+    if (!rec || !needsRoad(rec) || !derived.hasCafe || s.tutorial.step !== 'done') return;
+    if (simSeconds - (advice.lastById.m_no_road ?? -Infinity) < NO_ROAD_REMINDER) return;
+    advice = { ...advice, lastById: { ...advice.lastById, m_no_road: simSeconds } };
+    emit([{ type: 'mascot_message_requested', messageId: 'm_no_road', mood: 'alert', params: { buildingType: rec.type }, reason: 'advice' }]);
+  }
   settle();
 
   return {
-    /** Runs one command. Structural commands re-settle the town. */
+    /** Runs one command. Structural commands re-settle the town; tutorial signals may advance the tutorial. */
     dispatch(cmd) {
       const res = executeCommand(s, cmd); emit(res.events);
-      if (res.ok && STRUCTURAL.has(cmd.type)) settle();
+      if (res.ok && STRUCTURAL.has(cmd.type)) { settle(); if (cmd.type === CMD.Place || cmd.type === CMD.Move) remindRoad(res); }
+      else if (res.ok && cmd.type === CMD.TutorialSignal) emit(advanceTutorial(s, derived || computeDerived(s)));
       return res;
     },
     /** Advances real time; the simulation runs in fixed 1-second ticks, so the result does not depend on frame rate. */
@@ -49,7 +67,19 @@ export function createGame({ state } = {}) {
     drainEvents() { return queue.splice(0, queue.length); },
     serialize() { return serializeGame(s); },
     unlocked() { return unlockedTypes(s); },
-    /** Swaps in a new state (new game or load). Emits `state_replaced` so views rebuild. */
-    replaceState(next) { s = next; accumulator = 0; queue.length = 0; settle(); emit([{ type: 'state_replaced' }]); },
+    rules() { return rulesFor(s); },
+    /**
+     * Swaps in another state (new game, load, other mode). `reason` is 'new' or 'load'.
+     * Emits `state_replaced`, then the mascot's opening line for this session.
+     */
+    replaceState(next, reason = 'load') {
+      s = next; accumulator = 0; simSeconds = 0; advice = { now: 0, last: -Infinity, lastById: {} }; queue.length = 0; derived = null;
+      settle(); queue.length = 0; // a load settles silently: no replayed goals or tutorial steps
+      emit([{ type: 'state_replaced', mode: s.mode, reason }]);
+      const opening = tutorialMessage(s)
+        || (s.mode === 'sandbox' ? { type: 'mascot_message_requested', messageId: 'm_sandbox', mood: 'cheer', params: {}, reason: 'session' }
+        : reason === 'load' ? { type: 'mascot_message_requested', messageId: 'm_welcome_back', mood: 'wave', params: {}, reason: 'session' } : null);
+      emit([opening]);
+    },
   };
 }

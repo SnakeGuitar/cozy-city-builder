@@ -1,5 +1,7 @@
 // Goals as data. `metric` names a pure function in core/goals/metrics.js; a goal completes when metric >= target.
 export const GOALS = Object.freeze([
+  { id: 'g0', reward: 50, unlock: [], metric: 'hasCafe', target: 1 },
+  { id: 'g0b', reward: 50, unlock: [], metric: 'connectedHomes', target: 1 },
   { id: 'g1', reward: 100, unlock: ['workshop', 'lamp'], metric: 'connectedHomes', target: 3 },
   { id: 'g2', reward: 120, unlock: ['citruscafe', 'florist', 'orchard'], metric: 'connectedBakeries', target: 1 },
   { id: 'g3', reward: 150, unlock: ['school', 'clinic', 'library', 'jam'], metric: 'gardenNextToHome', target: 1 },

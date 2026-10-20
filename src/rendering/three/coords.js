@@ -8,3 +8,5 @@ export const tileCenter = (x, y, s = 1) => new THREE.Vector3(x - HALF + s / 2, 0
 export const buildingCenter = b => tileCenter(b.x, b.y, DEFS[b.type].s);
 /** World point just above a building, for labels and relation lines. */
 export const buildingTop = (b, lift = 0) => buildingCenter(b).setY((DEFS[b.type].s > 1 ? 1.4 : 1.25) + lift);
+/** Tile under a world point for a footprint of side s (the cursor sits at the footprint's centre). */
+export const tileFromWorld = (p, s = 1) => ({ x: Math.floor(p.x + HALF - (s - 1) / 2), y: Math.floor(p.z + HALF - (s - 1) / 2) });

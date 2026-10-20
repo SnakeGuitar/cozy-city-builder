@@ -3,9 +3,11 @@ import { $, ico } from './dom.js';
 import { t, fmt } from './i18n.js';
 
 const demBar = v => { const h = Math.min(13, Math.abs(v) / 100 * 13); return v >= 0 ? `<i style="bottom:13px;height:${h}px"></i>` : `<i class="neg" style="top:13px;height:${h}px"></i>`; };
-export function renderHud({ state, derived }, prefs) {
+/** rules: the game's rules (core/config/rules.js); settings: global player settings (sound …). */
+export function renderHud({ state, derived }, settings, rules) {
   const city = derived.city, net = Math.round(city.net);
-  $('v-coins').textContent = fmt(state.coins);
+  $('v-coins').textContent = rules.unlimitedMoney ? '∞' : fmt(state.coins);
+  $('c-mode').hidden = rules.mode === 'normal'; $('c-mode').textContent = t('mode_' + rules.mode);
   $('v-net').textContent = (net >= 0 ? '+' : '−') + fmt(Math.abs(net)) + t('perMin'); $('v-net').classList.toggle('neg', net < 0);
   $('v-pop').textContent = `${fmt(state.population)}/${fmt(city.Rcap)}`;
   $('v-well').textContent = Math.round(city.well); $('v-wbar').style.width = Math.round(city.well) + '%';
@@ -15,7 +17,7 @@ export function renderHud({ state, derived }, prefs) {
   const paused = state.clock.paused, pb = $('b-pause');
   pb.classList.toggle('on', paused); pb.innerHTML = ico(paused ? 'i-play' : 'i-pause'); pb.title = t(paused ? 'play' : 'pause'); pb.setAttribute('aria-label', pb.title);
   for (const n of [1, 2, 3]) $('b-s' + n).classList.toggle('on', !paused && state.clock.speed === n);
-  $('snd-use').setAttribute('href', prefs.muted ? '#i-mute' : '#i-snd'); $('b-snd').title = t(prefs.muted ? 'soundOn' : 'soundOff'); $('b-snd').setAttribute('aria-label', $('b-snd').title);
+  $('snd-use').setAttribute('href', settings.muted ? '#i-mute' : '#i-snd'); $('b-snd').title = t(settings.muted ? 'soundOn' : 'soundOff'); $('b-snd').setAttribute('aria-label', $('b-snd').title);
 }
 /** Day/night: tint overlay and sun/moon icon. */
 export function renderLight(light) {

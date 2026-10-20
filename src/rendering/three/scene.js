@@ -1,4 +1,4 @@
-// Renderer, camera rig, lights, the paper ground and the day/night light cycle.
+// Renderer, lights, the paper ground and the day/night light cycle. The camera lives in cameraRig.js.
 import * as THREE from 'three';
 
 import { getProto } from './models/index.js';
@@ -12,31 +12,17 @@ export function createScene(container) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
   const scene = new THREE.Scene();
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -100, 200);
   const hemi = new THREE.HemisphereLight('#fff4e2', '#c8b392', 1.45); scene.add(hemi);
   const sun = new THREE.DirectionalLight('#ffe9c8', 1.7);
   sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, { left: -17, right: 17, top: 17, bottom: -17, near: 1, far: 90 });
   sun.shadow.bias = -.0005; sun.shadow.normalBias = .02; sun.shadow.radius = 3;
   scene.add(sun, sun.target);
-  const rig = { target: new THREE.Vector3(.5, 0, .3), tt: new THREE.Vector3(.5, 0, .3), yaw: Math.PI / 4, tyaw: Math.PI / 4, zoom: 1.25, tzoom: 1.25, pitch: .62, tpitch: .62 };
   const decoTrees = buildGround(scene);
-  let size = { w: 1, h: 1 };
   return {
-    renderer, scene, camera, rig, sun, hemi, decoTrees,
-    resize(w, h) { size = { w, h }; renderer.setSize(w, h, false); },
-    get size() { return size; },
-    updateCamera(dt) {
-      const k = 1 - Math.exp(-dt * 9);
-      rig.target.lerp(rig.tt, k); rig.yaw += (rig.tyaw - rig.yaw) * k; rig.zoom += (rig.tzoom - rig.zoom) * k; rig.pitch += (rig.tpitch - rig.pitch) * k;
-      const v = 15 / rig.zoom, a = size.w / size.h;
-      camera.left = -v * a / 2; camera.right = v * a / 2; camera.top = v / 2; camera.bottom = -v / 2; camera.updateProjectionMatrix();
-      const d = 45, cp = Math.cos(rig.pitch);
-      camera.position.set(rig.target.x + Math.sin(rig.yaw) * cp * d, Math.sin(rig.pitch) * d, rig.target.z + Math.cos(rig.yaw) * cp * d);
-      camera.lookAt(rig.target);
-    },
-    clampTarget() { rig.tt.x = Math.max(-HALF, Math.min(HALF, rig.tt.x)); rig.tt.z = Math.max(-HALF, Math.min(HALF, rig.tt.z)); },
-    render() { renderer.render(scene, camera); },
+    renderer, scene, sun, hemi, decoTrees,
+    resize(w, h) { renderer.setSize(w, h, false); },
+    render(camera) { renderer.render(scene, camera); },
   };
 }
 
@@ -84,16 +70,16 @@ const DAYK = [
   [1, '#ffcfae', 1.0, '#fde7d6', '#c8b392', 1.0, '#f4cfc0', .14, .4]];
 const _ca = new THREE.Color(), _cb = new THREE.Color();
 /** Sets light colours for time-of-day `tt` (0..1). Returns { night, tint, tintOpacity } for the DOM overlay. */
-export function applyDayLight(view, tt, materials) {
+export function applyDayLight(view, tt, materials, focus) {
   let i = 0; while (DAYK[i + 1][0] < tt) i++;
   const A = DAYK[i], B = DAYK[i + 1], k = (tt - A[0]) / (B[0] - A[0]), L = (a, b) => a + (b - a) * k;
-  const { sun, hemi, rig } = view;
+  const { sun, hemi } = view;
   sun.color.copy(_ca.set(A[1]).lerp(_cb.set(B[1]), k)); sun.intensity = L(A[2], B[2]);
   hemi.color.copy(_ca.set(A[3]).lerp(_cb.set(B[3]), k)); hemi.groundColor.copy(_ca.set(A[4]).lerp(_cb.set(B[4]), k)); hemi.intensity = L(A[5], B[5]);
   const tint = '#' + _ca.set(A[6]).lerp(_cb.set(B[6]), k).getHexString(), tintOpacity = L(A[7], B[7]);
   const night = L(A[8], B[8]);
   const az = .9 + tt * 2.2, el = night > .5 ? .9 : .75 + Math.sin(tt * Math.PI) * .25;
-  sun.position.set(rig.target.x + Math.cos(az) * 20, Math.sin(el) * 26, rig.target.z + Math.sin(az) * 20); sun.target.position.copy(rig.target);
+  sun.position.set(focus.x + Math.cos(az) * 20, Math.sin(el) * 26, focus.z + Math.sin(az) * 20); sun.target.position.copy(focus);
   materials.window.emissiveIntensity = night * 1.15; materials.lamp.emissiveIntensity = .15 + night * 1.5; materials.glow.opacity = night * .85;
   return { night, tint, tintOpacity };
 }

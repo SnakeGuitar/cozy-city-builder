@@ -1,6 +1,6 @@
 // Storage port backed by localStorage. Every access is guarded: private windows and previews may refuse it.
-export const SAVE_KEY = 'villa-limon';
-export const LEGACY_KEYS = ['strawberry-borough-v1'];
+// Game slots (normal, sandbox) are named in application/app.js; this key holds global player settings.
+export const SETTINGS_KEY = 'villa-limon-settings';
 
 export function createLocalStorage(storeOverride) {
   // Even reading `localStorage` can throw in sandboxed frames, so resolve it lazily inside try.

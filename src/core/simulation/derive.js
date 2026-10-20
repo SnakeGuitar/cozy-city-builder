@@ -6,7 +6,8 @@
 // applyTick(state, derived) commits one simulated second (employment, demand, population, money,
 //   shop doors and wellbeing memory). commitMemory(state, derived) commits only the lagged memory
 //   after a player command, exactly as the town settles between ticks.
-import { DEFS } from '../config/catalog.js';
+import { DEFS, LANDMARK } from '../config/catalog.js';
+import { rulesFor } from '../config/rules.js';
 import { listBuildings } from '../domain/state.js';
 import { computeRoadNetwork } from './roads.js';
 import { computeNeighbourEffects } from './effects.js';
@@ -23,7 +24,9 @@ import { computeDemand } from './demand.js';
 export function computeDerived(state, { mode = 'snapshot' } = {}) {
   const things = listBuildings(state).filter(b => b.type !== 'road');
   const kind = b => DEFS[b.type].kind;
-  const broke = state.coins <= 0;
+  const rules = rulesFor(state);
+  const broke = !rules.unlimitedMoney && state.coins <= 0;
+  const hasCafe = things.some(b => b.type === LANDMARK);
   const roads = computeRoadNetwork(state, things);
   const { connected } = roads;
   const effects = computeNeighbourEffects(things, connected);
@@ -33,12 +36,13 @@ export function computeDerived(state, { mode = 'snapshot' } = {}) {
   const utilities = computeUtilities(things, connected, housing.occupancy, work.staff, broke);
   const services = computeServices(things, connected, housing.occupancy, work.staff, broke);
   const wellbeing = computeWellbeing(things, connected, effects, services.coverage, utilities.ratio, state.population, housing.occupancy);
-  const commerce = computeCommerce(things, connected, effects, work.staffRatio, state.population, work.employed);
+  const commerce = computeCommerce(things, connected, effects, work.staffRatio, state.population, work.employed, hasCafe);
   const industry = computeIndustry(things, connected, effects, work.staff, utilities.ratio.power, commerce.goodsNeed);
   const finance = computeFinance(things, connected, effects, commerce, industry, wellbeing.town, state.population);
   const demand = computeDemand({ jobs: work.jobs, workforce: work.workforce, capacity: housing.capacity, population: state.population, townWell: wellbeing.town,
     utilMin: utilities.min, serviceScore: wellbeing.serviceScore, homeless: housing.homeless, PP: commerce.PP, shopCap: commerce.shopCap,
-    vacantShops: commerce.vacantShops, goodsNeed: commerce.goodsNeed, prod: industry.total, hasIndustry: things.some(b => kind(b) === 'industry') });
+    vacantShops: commerce.vacantShops, goodsNeed: commerce.goodsNeed, prod: industry.total, hasIndustry: things.some(b => kind(b) === 'industry'),
+    hasHomes: houses.length > 0, hasCafe });
 
   const byId = {};
   for (const b of things) {
@@ -51,7 +55,7 @@ export function computeDerived(state, { mode = 'snapshot' } = {}) {
     byId[b.id] = rec;
   }
   return {
-    mode, byId,
+    mode, byId, hasCafe, empty: things.length === 0,
     roads: { reach: roads.reach, mainRoads: roads.mainRoads },
     employed: work.employed,
     city: {

@@ -2,7 +2,7 @@
   "name": "villa-limon",
   "version": "2.1.0",
   "private": true,
-  "description": "Villa Limón: a cozy city builder. Portable game rules (src/core) with a Three.js + DOM front end.",
+  "description": "Villa Lim\u00f3n: a cozy city builder. Portable game rules (src/core) with a Three.js + DOM front end.",
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.mjs",
@@ -13,5 +13,13 @@
   "devDependencies": {
     "esbuild": "0.25.10"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "esbuild@0.25.10": true
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  }
 }

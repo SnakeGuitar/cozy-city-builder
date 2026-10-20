@@ -6,7 +6,8 @@ export const ALL_GOALS = GOALS.map(g => g.id);
 
 /** A state with the given buildings ([type, x, y, r?, seed?]) and generous defaults. */
 export function makeState(buildings = [], over = {}) {
-  const s = createEmptyState({ coins: 10000, population: 0, employed: 0, demand: { r: 0, c: 0, i: 0 }, rngSeed: 42, ...over });
+  // goalsDone starts with the two starter goals so rewards for them do not blur economy assertions
+  const s = createEmptyState({ coins: 10000, population: 0, employed: 0, demand: { r: 0, c: 0, i: 0 }, rngSeed: 42, goalsDone: ['g0', 'g0b'], ...over });
   for (const [type, x, y, r = 0, seed = 0] of buildings) insertBuilding(s, type, x, y, r, seed);
   return s;
 }

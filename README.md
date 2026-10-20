@@ -4,6 +4,28 @@ A cozy city builder: place homes from four architectural traditions, connect the
 run services, shops and light industry, and follow residential, commercial and industrial demand.
 It runs in the browser with Three.js, and needs no install to play.
 
+The game opens on a main menu (continue, new game, sandbox, settings, language, credits). A new game starts
+on an empty map: Limoni, the town's fox mascot, guides you to place the free café, a path and your first home.
+Sandbox mode has everything unlocked and nothing costs; it is saved apart from the normal game.
+
+## Controls
+
+| Action | Mouse / keyboard | Touch |
+| --- | --- | --- |
+| Pan | Drag, or WASD / arrow keys | One finger (when no road or demolish tool is active) |
+| Orbit 360° | Right-drag, middle-drag or Alt + drag; Q / E turn 15° | Two-finger twist |
+| Zoom | Wheel | Pinch |
+| Tilt | Shift + wheel (also changes with orbit drags) | — |
+| Isometric ⇄ 3D perspective | V or the cube button | Cube button |
+| Reset camera | C or the target button | Target button |
+| Build / place | Pick in the catalogue, click the map; R turns the building | Tap |
+| Paths, demolition | Click and drag | Hold a finger briefly, then drag |
+| Cancel / menu | Right-click or Escape (Escape again opens the pause menu) | Menu button |
+| Pause, speed | Space, 1, 2, 3 | Top bar |
+
+Menus work with Tab / arrow keys / Enter and Escape to go back. "Smooth camera" can be turned off in the settings
+(it starts off when the system asks for reduced motion).
+
 ## Requirements
 
 - Node.js 20 or newer (tests and build). Playing in development needs only a static server.
@@ -30,8 +52,8 @@ To just play, open the built `index.html` in the repository root, directly or fr
 npm test
 ```
 
-Runs Node's built-in test runner over `tests/`. The tests import only `src/core` and `src/application`
-(plus the string table), so they need no browser, no WebGL and no extra packages.
+Runs Node's built-in test runner over `tests/`. They need no browser or WebGL: the rules, the app and the camera
+run headless, and the camera-picking tests use the `three` dev dependency without rendering.
 
 ## Build
 
@@ -64,11 +86,15 @@ src/
     domain/      state shape, buildings, grid, footprints, placement rules
     simulation/  roads, effects, housing, jobs, utilities, services, wellbeing, commerce, industry, finance, demand
     goals/       goal metrics, rewards, unlocks
-    commands/    PlaceBuilding, MoveBuilding, RotateBuilding, DemolishBuilding, SetSpeed, TogglePause
-    persistence/ save documents, validation, migrations v1 → v2 → v3
-  application/   createGame(): dispatch, step, getSnapshot, drainEvents, serialize
+    config/rules.js GameRules for 'normal' and 'sandbox' (costs, money, unlocks, goals, tutorial)
+    commands/    PlaceBuilding, MoveBuilding, RotateBuilding, DemolishBuilding, SetSpeed, TogglePause, TutorialSignal
+    tutorial/    first-steps tutorial (which line the mascot should say)
+    mascot/      advice rules and their rate limits
+    persistence/ save documents, validation, migrations v1 → v2 → v3 → v4
+  application/   createGame() (game controller), navigation (menu states), createApp() (slots, sessions)
+  presentation/  engine-neutral camera model/controller and touch/mouse gesture interpreter
   rendering/three/ scene, camera, models, building views (Map<id, Object3D>), roads, ambient life, overlays
-  ui/            interaction (tools and selection) and dom/ (panels, catalogue, HUD, strings in 5 languages)
+  ui/            interaction (tools and selection) and dom/ (menu, Limoni, panels, catalogue, HUD, strings in 5 languages)
   platform/web/  localStorage, Web Audio, input, frame loop and bootstrap (main.js)
 tests/           node:test suites and fixtures
 docs/            architecture.md, godot-migration.md
@@ -87,5 +113,7 @@ unless the building introduces a new kind of rule. See `docs/architecture.md`.
 
 ## Saves
 
-The game saves to `localStorage` under `villa-limon` every 5 seconds, after changes and when the page closes.
-Saves are versioned JSON (`v: 3`); older Villa Limón (v2) and Strawberry Borough (v1) saves migrate on load.
+Two independent slots in `localStorage`: `villa-limon` (normal game) and `villa-limon-sandbox`. The active game
+saves every 5 seconds, after changes, when you return to the main menu and when the page closes. Each save records
+its mode and its camera. Global settings (language, sound, mascot, camera smoothing) live in `villa-limon-settings`.
+Saves are versioned JSON (`v: 4`); v3, v2 and Strawberry Borough (v1) saves migrate on load without losing buildings.
