@@ -3,7 +3,7 @@
 import { CMD } from '../../core/commands/commands.js';
 import { createGestureTracker } from '../../presentation/input/gestures.js';
 
-export function bindInput({ canvas, interaction, camera, game, audio, isPlaying, onEscape }) {
+export function bindInput({ canvas, interaction, camera, game, audio, isPlaying, onEscape, onTogglePlacement }) {
   const tracker = createGestureTracker(), keys = new Set();
   const run = intents => { for (const it of intents) switch (it.type) {
     case 'hover': interaction.pointerMove(it.x, it.y); break;
@@ -12,7 +12,8 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
     case 'pinch': camera.zoomBy(it.factor); break;
     case 'twist': camera.orbitBy(-it.angle, 0); break;
     case 'paint': interaction.paint(it.x, it.y, it.dragging); break;
-    case 'click': interaction.click(it.x, it.y, it.painted); break;
+    case 'paint_end': interaction.paintEnd(it.x, it.y, it.touch); break;
+    case 'click': interaction.click(it.x, it.y, it.painted, it.touch); break;
     case 'cancel': interaction.cancel(); break;
   } };
   const pt = e => ({ id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, button: e.button, touch: e.pointerType === 'touch', alt: e.altKey, ctrl: e.ctrlKey || e.metaKey });
@@ -24,6 +25,7 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
   canvas.addEventListener('pointerleave', () => interaction.pointerLeave());
   canvas.addEventListener('wheel', e => {
     e.preventDefault(); if (!isPlaying()) return;
+    if ((e.ctrlKey || e.metaKey) && interaction.rotateBy(-Math.sign(e.deltaY || e.deltaX) * Math.PI / 36)) return; // free placement: turn by 5°
     if (e.shiftKey) camera.tilt(Math.sign(e.deltaY || e.deltaX)); else camera.zoomBy(Math.exp(-e.deltaY * .0012));
   }, { passive: false });
   addEventListener('keydown', e => {
@@ -35,7 +37,9 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
     else if (k === 'q' || k === 'e') camera.rotateStep(k === 'q' ? -1 : 1);
     else if (k === 'c') camera.reset();
     else if (k === 'v') camera.toggleMode();
-    else if (k === 'r') interaction.rotate();
+    else if (k === 'r') interaction.rotate(e.shiftKey ? -1 : 1);
+    else if (k === 'enter' && interaction.pending) interaction.confirmPending();
+    else if (k === 'g' && interaction.tool.kind !== 'select') onTogglePlacement?.();
     else if (k === ' ') { e.preventDefault(); game.dispatch({ type: CMD.TogglePause }); }
     else if (k === '1' || k === '2' || k === '3') game.dispatch({ type: CMD.SetSpeed, speed: +k });
     else if (k === 'delete' || k === 'backspace') interaction.armDemolish();

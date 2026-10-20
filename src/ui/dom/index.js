@@ -13,6 +13,8 @@ import { renderGoals } from './goalsView.js';
 import { renderCatalog, affordKey } from './catalog.js';
 import { renderSelectionPanel, relationLinks } from './selectionPanel.js';
 import { createMascot } from './mascot/mascot.js';
+import { createPlaceBar } from './placeBar.js';
+import { normalizePlacement } from '../interaction.js';
 
 /** Global player settings (saved apart from any game). Untrusted input is normalised here. */
 export function normalizeSettings(raw = {}, fallbackLang = 'es', reducedMotion = false) {
@@ -29,6 +31,7 @@ export function normalizeSlotUi(ui = {}) {
     tab: CATS.includes(ui.tab) ? ui.tab : 'homes',
     filt: { fam: [...FAMS, 'all'].includes(ui.filt?.fam) ? ui.filt.fam : 'all', era: [...ERAS, 'all'].includes(ui.filt?.era) ? ui.filt.era : 'all' },
     newT: Array.isArray(ui.newT) ? ui.newT.filter(k => DEFS[k]) : [],
+    place: normalizePlacement(ui.place),
   };
 }
 
@@ -37,6 +40,7 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
   const labels = createWorldLabels(view);
   const mascot = createMascot(settings);
   const justDone = new Map(), income = new Map();
+  const placeBar = createPlaceBar({ interaction, prefs: () => slot.place, onChange: () => requestSave() });
   let tickCount = 0, lastAfford = '';
   const snap = () => game.getSnapshot();
   const rules = () => game.rules();
@@ -125,9 +129,11 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
   return {
     renderAll, applyLanguage, onEvents, toast, mascot,
     /** The per-slot UI object was replaced (another game was opened). */
-    setSlot(next) { Object.keys(slot).forEach(k => delete slot[k]); Object.assign(slot, next); catalog(); },
+    setSlot(next) { Object.keys(slot).forEach(k => delete slot[k]); Object.assign(slot, next); catalog(); placeBar.render(); },
+    /** G: switch grid ⇄ free placement. */
+    togglePlacement() { slot.place.mode = slot.place.mode === 'free' ? 'grid' : 'free'; interaction.placementChanged(); placeBar.render(); requestSave(); },
     /** Interaction changed tool or selection. */
-    onInteraction(kind) { if (kind === 'tool') { catalog(); toolButtons(); } if (kind === 'selection') { panel(); relations(); if (interaction.selected) audio.click(); } },
+    onInteraction(kind) { if (kind === 'tool') { catalog(); toolButtons(); placeBar.render(); } if (kind === 'selection') { panel(); relations(); if (interaction.selected) audio.click(); } },
     frame(dt, light) {
       labels.update(dt); renderLight(light);
       if ((slow += dt) > 5) { slow = 0; const k = affordKey(snap(), slot); if (k !== lastAfford) { lastAfford = k; catalog(); } }

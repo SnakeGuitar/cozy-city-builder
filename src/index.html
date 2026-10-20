@@ -133,6 +133,24 @@ button:focus-visible{outline:2px solid var(--lime-deep);outline-offset:2px;}
 .btn.red{background:var(--warn);border-color:var(--warn);color:#fff8ef;}
 .btn.red:hover{background:#8a3f1f;}
 .btn.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn);}
+/* ---------- placement bar ---------- */
+.placebar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--catH,170px) + 18px + env(safe-area-inset-bottom,0px));z-index:12;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;max-width:calc(100vw - 32px);padding:6px 8px;border-radius:16px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);font-size:12.5px;}
+.placebar[hidden]{display:none;}
+.pb-seg{display:flex;border:1px solid var(--line-strong);border-radius:999px;overflow:hidden;}
+.pb-seg button{border:0;background:#fffaf0;padding:5px 11px;font-weight:800;display:flex;align-items:center;gap:5px;min-height:32px;}
+.pb-seg button.on{background:var(--lime-deep);color:#fff;}
+.pb-seg .ico{width:15px;height:15px;}
+.pb-group{display:flex;align-items:center;gap:4px;}
+.pb-lbl{font-weight:800;color:var(--ink-soft);margin-right:2px;}
+.pb-chip{border:1px solid var(--line);background:#fffaf0;border-radius:999px;padding:4px 9px;font-weight:700;min-height:30px;}
+.pb-chip.on{background:var(--sage-soft);border-color:var(--sage);color:var(--leaf-deep);}
+.pb-ico{width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:#fffaf0;display:grid;place-items:center;}
+.pb-ico .ico{width:16px;height:16px;}
+.pb-angle{min-width:38px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums;}
+.pb-ok{border:0;background:var(--lime-deep);color:#fff;border-radius:999px;padding:6px 14px;font-weight:800;min-height:34px;}
+.pb-no{border:1px solid var(--line-strong);background:#fffaf0;border-radius:50%;width:34px;height:34px;font-weight:800;}
+#tip .ok{color:var(--lime-deep);}
+@media (max-width:640px){.placebar{gap:5px;padding:5px;font-size:11.5px;}.pb-lbl{display:none;}}
 .btn.up{background:var(--lemon-soft);border-color:var(--lemon-deep);color:#6b4d0b;}
 .btn.up:hover{background:#f8e391;}
 .btn[disabled]{opacity:.45;cursor:not-allowed;}
@@ -343,6 +361,7 @@ body.in-menu #stage,body.in-menu #top,body.in-menu #catalog,body.in-menu #goals,
 <aside id="panel" class="panel" hidden></aside>
 <aside id="city" class="panel" hidden></aside>
 
+<div id="placebar" class="placebar" hidden></div>
 <nav id="catalog">
   <div class="cat-head"><div id="tabs" style="display:flex;gap:6px;flex-wrap:wrap"></div>
     <div class="tools">
@@ -358,6 +377,8 @@ body.in-menu #stage,body.in-menu #top,body.in-menu #catalog,body.in-menu #goals,
 <div id="tip" hidden></div>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 20 20"><path d="M3 3h14v14H3zM3 7.7h14M3 12.3h14M7.7 3v14M12.3 3v14" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-free" viewBox="0 0 20 20"><rect x="5" y="5" width="10" height="7" rx="1" transform="rotate(-18 10 8.5)" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 16.5c3-1.8 9-1.8 12 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2 2"/></symbol>
   <symbol id="i-up" viewBox="0 0 20 20"><path d="M10 3l5.5 6H12v7H8V9H4.5z" fill="#f2d03f" stroke="#8a6a12" stroke-width="1.2" stroke-linejoin="round"/></symbol>
   <symbol id="i-coin" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#f2d03f" stroke="#8a6a12" stroke-width="1"/><circle cx="10" cy="10" r="6.2" fill="#fbefb4"/><g stroke="#d9b32a" stroke-width="1.1" stroke-linecap="round"><path d="M10 10V4.4M10 10l4 -4M10 10h5.6M10 10l4 4M10 10v5.6M10 10l-4 4M10 10H4.4M10 10l-4-4"/></g><circle cx="10" cy="10" r="1" fill="#f2d03f"/></symbol>
   <symbol id="i-pop" viewBox="0 0 20 20"><circle cx="7" cy="6.5" r="2.6" fill="#f1c9a5" stroke="#5b3e2c" stroke-width="1"/><path d="M2.5 16c0-3 2-5 4.5-5s4.5 2 4.5 5z" fill="#5d8a3c" stroke="#5b3e2c" stroke-width="1"/><circle cx="13.5" cy="7" r="2.3" fill="#f1c9a5" stroke="#5b3e2c" stroke-width="1"/><path d="M9.8 16c0-2.8 1.7-4.6 3.7-4.6s3.8 1.8 3.8 4.6z" fill="#e0a948" stroke="#5b3e2c" stroke-width="1"/></symbol>

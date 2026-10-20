@@ -1,19 +1,37 @@
 // Tools and selection: turns pointer/keyboard intents into core commands and previews.
-// Owns only presentation state (current tool, hover, selection); game rules stay in core/.
-import { DEFS, isRoadType } from '../core/config/catalog.js';
+// Owns only presentation state (current tool, hover, selection, placement preferences); game rules stay in core/.
+//
+// Placement has two modes over the same world state:
+//   grid — the cursor picks a cell, rotation turns in quarter steps (or faces the road by itself);
+//   free — the cursor gives a continuous ground point, rotation turns by a configurable step, and optional snaps
+//          (grid steps, road edge, neighbouring building) come from core/domain/snap.js.
+// On touch, a tap in free mode only moves the preview; the placement bar's ✓ confirms it.
+import { DEFS, isRoadType, LANDMARK } from '../core/config/catalog.js';
 import { canPlace, autoFace, tileToPose } from '../core/domain/space.js';
-import { quarterToAngle, angleToQuarter } from '../core/domain/geometry.js';
+import { quarterToAngle, angleToQuarter, normAngle } from '../core/domain/geometry.js';
+import { snapPosition, snapAngle, snapToRoad, snapToBuildings } from '../core/domain/snap.js';
 import { statsOf } from '../core/domain/state.js';
 import { CMD, peekSeed, refundFor, costFor, canAfford } from '../core/commands/commands.js';
-import { LANDMARK } from '../core/config/catalog.js';
 import { $ } from './dom/dom.js';
 import { t } from './dom/i18n.js';
 
-export function createInteraction({ game, view, onChange }) {
-  let tool = { kind: 'select' }, selected = 0, hover = null, mouse = { x: 0, y: 0, in: false }, confirmDemo = false, upgradeOpen = false, time = 0;
+/** Placement preferences (saved with each game's UI data). */
+export const DEFAULT_PLACEMENT = Object.freeze({ mode: 'grid', snapGrid: false, snapRoad: true, snapBuild: true, step: 15 });
+export function normalizePlacement(p = {}) {
+  return { mode: p.mode === 'free' ? 'free' : 'grid', snapGrid: !!p.snapGrid, snapRoad: p.snapRoad !== false, snapBuild: p.snapBuild !== false,
+    step: [5, 15, 45, 90].includes(p.step) ? p.step : DEFAULT_PLACEMENT.step };
+}
+
+export function createInteraction({ game, view, onChange, placement = () => DEFAULT_PLACEMENT }) {
+  let tool = { kind: 'select' }, selected = 0, hover = null, pending = null, mouse = { x: 0, y: 0, in: false }, confirmDemo = false, upgradeOpen = false, time = 0;
   const tip = $('tip');
   const snap = () => game.getSnapshot();
   const building = () => tool.kind === 'build' || tool.kind === 'move';
+  const prefs = () => placement();
+  /** Free placement applies to buildings; streets of the grid tool always follow cells. */
+  const freeMode = () => prefs().mode === 'free' && building() && !isRoadType(tool.type);
+  const stepRad = () => prefs().step * Math.PI / 180;
+
   /** Pose of the current tool on grid cell (x, y): quarter turn chosen by hand (R) or facing the road. */
   function gridPose(type, x, y) {
     const state = snap().state;
@@ -21,10 +39,23 @@ export function createInteraction({ game, view, onChange }) {
     const r = tool.manualR ? tool.r : angleToQuarter(autoFace(state, type, tileToPose(state, type, x, y, tool.r).position, quarterToAngle(tool.r)));
     return tileToPose(state, type, x, y, r);
   }
+  /** Pose of the current tool for a free ground point, after the snaps that are switched on. */
+  function freePose(type, ground) {
+    const state = snap().state, p = prefs(), ignore = tool.kind === 'move' ? tool.id : 0;
+    let pose = { position: p.snapGrid ? snapPosition(ground, .5) : { x: ground.x, z: ground.z }, rotation: tool.rot }, snapped = null;
+    if (p.snapRoad) { const r = snapToRoad(state, type, pose); if (r && !canPlace(state, type, r.position, r.rotation, ignore)) { pose = r; snapped = 'road'; } }
+    if (!snapped && p.snapBuild) { const b = snapToBuildings(state, type, pose, .6, ignore); if (b && !canPlace(state, type, b.position, b.rotation, ignore)) { pose = b; snapped = 'building'; } }
+    return { position: pose.position, rotation: pose.rotation, snapped };
+  }
+  /** The pose under a screen point for the current tool, or null off the ground. */
+  function poseAt(x, y) {
+    if (freeMode()) { const g = view.groundAt(x, y); return g ? freePose(tool.type, g) : null; }
+    const tile = view.tileAt(x, y, isRoadType(tool.type) ? 1 : DEFS[tool.type].s); return tile ? gridPose(tool.type, tile.x, tile.y) : null;
+  }
 
   function setTool(next) {
     if (tool.kind === 'move' && next.kind !== 'move') view.setBuildingHidden(tool.id, false);
-    tool = { r: 0, manualR: false, ...next }; confirmDemo = false;
+    tool = { r: 0, rot: 0, manualR: false, ...next }; confirmDemo = false; pending = null;
     view.overlays.clearGhost(); view.overlays.hideFootprint(); tip.hidden = true;
     view.overlays.setBuildMode(building() || tool.kind === 'demolish');
     if (!selected) view.overlays.hideRange();
@@ -37,33 +68,41 @@ export function createInteraction({ game, view, onChange }) {
     onChange('selection');
   }
   function place(pose) {
+    if (!pose) return false;
     if (tool.kind === 'move') {
       const id = tool.id, res = game.dispatch({ type: CMD.Move, id, position: pose.position, rotation: pose.rotation, autoFace: false });
       if (res.ok) { setTool({ kind: 'select' }); select(id); }
       return res.ok;
     }
     const res = game.dispatch({ type: CMD.Place, buildingType: tool.type, position: pose.position, rotation: pose.rotation, autoFace: false });
-    if (res.ok && DEFS[tool.type].unique) setTool({ kind: 'select' });
+    if (res.ok) { pending = null; if (DEFS[tool.type].unique) setTool({ kind: 'select' }); else onChange('tool'); }
     return res.ok;
   }
   function demolish(id) { const res = game.dispatch({ type: CMD.Demolish, id }); if (res.ok && selected === id) select(0); return res.ok; }
 
+  /** Draws the ghost, footprint, range and tooltip for a pose. */
+  function preview(pose, at) {
+    const { state } = snap(), d = DEFS[tool.type];
+    const moving = tool.kind === 'move' && state.buildings[tool.id];
+    const seed = moving ? moving.seed : peekSeed(state);
+    const why = canPlace(state, tool.type, pose.position, pose.rotation, moving ? tool.id : 0) || (tool.kind === 'build' && !canAfford(state, tool.type) ? 'notEnough' : null);
+    const cost = costFor(state, tool.type);
+    view.overlays.ghost(tool.type, view.variantOf(tool.type, seed), pose.position, pose.rotation, !why, time, moving ? moving.tier : 1);
+    view.overlays.footprint(tool.type, pose.position, pose.rotation, !why); view.overlays.range(tool.type, pose.position, pose.rotation, moving ? statsOf(moving).r : 0);
+    if (!at) return why;
+    const hint = isRoadType(tool.type) ? t('roadsHint') : freeMode() ? t(tool.kind === 'move' ? 'movingFree' : 'placingFree') : t(tool.kind === 'move' ? 'moving' : 'placing');
+    const snapTag = pose.snapped ? ` · <span class="ok">${t('snapped_' + pose.snapped)}</span>` : '';
+    tip.hidden = false;
+    tip.innerHTML = `${t('n_' + tool.type)} ${tool.kind === 'build' ? `· ${cost ? cost : t('free')} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>${d.upkeep ? ` · −${d.upkeep}${t('perMin')}` : ''}` : ''}${why ? ` · <span class="bad">${t(why)}</span>` : snapTag}<br><span style="font-weight:600;opacity:.7">${hint}</span>`;
+    return why;
+  }
   function updateHover() {
     view.overlays.hideFootprint(); tip.hidden = true;
+    if (building() && pending) { preview(pending, false); return; } // touch: the preview stays where it was tapped
     if (!mouse.in) { view.overlays.hideGhost(); return; }
     const { state } = snap();
-    if (building()) {
-      const d = DEFS[tool.type], tile = view.tileAt(mouse.x, mouse.y, d.s); if (!tile) return;
-      const pose = gridPose(tool.type, tile.x, tile.y); hover = pose;
-      const moving = tool.kind === 'move' && state.buildings[tool.id];
-      const seed = moving ? moving.seed : peekSeed(state);
-      const why = canPlace(state, tool.type, pose.position, pose.rotation, moving ? tool.id : 0) || (tool.kind === 'build' && !canAfford(state, tool.type) ? 'notEnough' : null);
-      const cost = costFor(state, tool.type);
-      view.overlays.ghost(tool.type, view.variantOf(tool.type, seed), pose.position, pose.rotation, !why, time, moving ? moving.tier : 1);
-      view.overlays.footprint(tool.type, pose.position, pose.rotation, !why); view.overlays.range(tool.type, pose.position, pose.rotation, moving ? statsOf(moving).r : 0);
-      tip.hidden = false;
-      tip.innerHTML = `${t('n_' + tool.type)} ${tool.kind === 'build' ? `· ${cost ? cost : t('free')} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>${d.upkeep ? ` · −${d.upkeep}${t('perMin')}` : ''}` : ''}${why ? ` · <span class="bad">${t(why)}</span>` : ''}<br><span style="font-weight:600;opacity:.7">${isRoadType(tool.type) ? t('roadsHint') : t(tool.kind === 'move' ? 'moving' : 'placing')}</span>`;
-    } else if (tool.kind === 'demolish') {
+    if (building()) { const pose = poseAt(mouse.x, mouse.y); if (!pose) return; hover = pose; preview(pose, true); }
+    else if (tool.kind === 'demolish') {
       const id = view.pickBuilding(mouse.x, mouse.y, state), b = id && state.buildings[id];
       tip.hidden = false;
       if (b) { view.overlays.footprint(b.type, b.position, b.rotation, false); tip.innerHTML = b.type === LANDMARK ? `<span class="bad">${t('cafeHeart')}</span>` : `${t('demolish')}: ${t('n_' + b.type)}${refundFor(state, b) ? ` · +${refundFor(state, b)}` : ''}`; }
@@ -74,6 +113,7 @@ export function createInteraction({ game, view, onChange }) {
 
   return {
     get tool() { return tool; }, get selected() { return selected; }, get confirmDemo() { return confirmDemo; }, get upgradeOpen() { return upgradeOpen; },
+    get pending() { return pending; }, get freeMode() { return freeMode(); },
     /** Opens or closes the upgrade preview of the selected building. */
     toggleUpgrade(open = !upgradeOpen) { upgradeOpen = !!selected && open; confirmDemo = false; onChange('selection'); },
     /** Confirms the previewed upgrade. The core validates it (money, tier) and answers with an event. */
@@ -89,25 +129,39 @@ export function createInteraction({ game, view, onChange }) {
       if (tool.kind === 'build') { const tile = view.tileAt(x, y); if (tile) place(gridPose(tool.type, tile.x, tile.y)); }
       else if (tool.kind === 'demolish' && dragging) { const id = view.pickBuilding(x, y, state); if (id && isRoadType(state.buildings[id].type)) demolish(id); }
     },
-    click(x, y, wasPainting) {
+    paintEnd() {},
+    click(x, y, wasPainting, touch = false) {
       const { state } = snap();
       if (building()) {
         if (isRoadType(tool.type)) { if (!wasPainting) this.paint(x, y, false); return; }   // a tap places one tile
-        const tile = view.tileAt(x, y, DEFS[tool.type].s); if (tile) place(gridPose(tool.type, tile.x, tile.y));
+        const pose = poseAt(x, y); if (!pose) return;
+        if (touch && freeMode()) { pending = pose; onChange('tool'); updateHover(); return; } // touch: move the preview, confirm with ✓
+        place(pose);
       }
       else if (tool.kind === 'demolish') { const id = view.pickBuilding(x, y, state); if (id) demolish(id); }
       else if (!wasPainting) { const id = view.pickBuilding(x, y, state); select(id && !isRoadType(state.buildings[id].type) ? id : 0); }
     },
-    /** Escape / right click: leave the tool, then the selection. Returns false when there was nothing to cancel. */
-    cancel() { if (tool.kind !== 'select') { setTool({ kind: 'select' }); return true; } if (selected) { select(0); return true; } return false; },
+    /** Places the pending (touch) preview. */
+    confirmPending() { if (pending && building()) return place(pending); return false; },
+    /** Escape / right click: drop a pending preview, then the tool, then the selection. False when there was nothing to cancel. */
+    cancel() { if (pending) { pending = null; onChange('tool'); updateHover(); return true; } if (tool.kind !== 'select') { setTool({ kind: 'select' }); return true; } if (selected) { select(0); return true; } return false; },
     startMove(id) {
       const b = snap().state.buildings[id]; if (!b) return;
-      select(0); setTool({ kind: 'move', id, type: b.type, r: angleToQuarter(b.rotation) }); view.setBuildingHidden(id, true);
+      select(0); setTool({ kind: 'move', id, type: b.type, r: angleToQuarter(b.rotation), rot: b.rotation, manualR: true }); view.setBuildingHidden(id, true);
     },
-    rotate() {
-      if (building()) { tool.r = ((tool.manualR || !hover ? tool.r : angleToQuarter(hover.rotation)) + 1) % 4; tool.manualR = true; updateHover(); }
-      else if (selected) game.dispatch({ type: CMD.Rotate, id: selected });
+    /** R (dir 1) / Shift+R (dir −1): turn the tool by a quarter (grid) or by the chosen step (free); otherwise turn the selection. */
+    rotate(dir = 1) {
+      if (building()) {
+        if (freeMode()) { tool.rot = snapAngle(tool.rot + dir * stepRad(), stepRad()); if (pending) pending = { ...pending, rotation: tool.rot, snapped: null }; }
+        else { tool.r = (((tool.manualR || !hover ? tool.r : angleToQuarter(hover.rotation)) + dir) % 4 + 4) % 4; tool.manualR = true; }
+        updateHover(); onChange('tool');
+      }
+      else if (selected) { const b = snap().state.buildings[selected]; game.dispatch({ type: CMD.Rotate, id: selected, by: prefs().mode === 'free' ? dir * stepRad() : dir * Math.PI / 2 }); if (b) select(selected); }
     },
+    /** Continuous turning (Ctrl + wheel) in free mode. */
+    rotateBy(rad) { if (!freeMode()) return false; tool.rot = normAngle(tool.rot + rad); if (pending) pending = { ...pending, rotation: tool.rot, snapped: null }; updateHover(); return true; },
+    /** The player switched grid ⇄ free (or a snap): redraw the preview. */
+    placementChanged() { if (tool.kind === 'move' || tool.kind === 'build') { if (prefs().mode === 'free' && hover) tool.rot = hover.rotation; pending = null; } updateHover(); onChange('tool'); },
     armDemolish() { if (selected) { confirmDemo = true; onChange('selection'); } },
     demolishSelected() { if (!selected) return; if (!confirmDemo) { confirmDemo = true; onChange('selection'); } else demolish(selected); },
     buildType(type) { if (tool.kind === 'build' && tool.type === type) return setTool({ kind: 'select' }); select(0); setTool({ kind: 'build', type }); },

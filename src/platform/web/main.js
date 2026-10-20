@@ -39,7 +39,7 @@ let saveTimer = null;
 const requestSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { app.save(); saveSettings(); }, 400); };
 
 let ui = null;
-const interaction = createInteraction({ game, view, onChange: kind => ui && ui.onInteraction(kind) });
+const interaction = createInteraction({ game, view, onChange: kind => ui && ui.onInteraction(kind), placement: () => slot.place });
 ui = createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave });
 const playing = () => simulationRunning(app.nav);
 const menu = createMenu({ settings, actions: {
@@ -56,7 +56,7 @@ const menu = createMenu({ settings, actions: {
 function renderMenu() { menu.render(app.nav, { hasNormal: app.hasSave('normal'), hasSandbox: app.hasSave('sandbox'), mode: app.mode }); }
 document.getElementById('b-menu').onclick = () => app.navigate({ type: 'pause' });
 document.getElementById('b-set').onclick = () => app.navigate({ type: 'open_settings' });
-const input = bindInput({ canvas: view.canvas, interaction, camera, game, audio, isPlaying: playing,
+const input = bindInput({ canvas: view.canvas, interaction, camera, game, audio, isPlaying: playing, onTogglePlacement: () => ui.togglePlacement(),
   onEscape: () => { if (app.nav.screen === 'playing') app.navigate({ type: 'pause' }); else if (app.nav.screen !== 'main_menu' || app.nav.confirm) app.navigate({ type: 'back' }); } });
 
 ui.applyLanguage(settings.lang);
@@ -100,4 +100,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // small debugging handle (read-only use from the console and the browser checks)
-window.__villa = { app, game, view, camera, interaction, settings };
+window.__villa = { app, game, view, camera, interaction, settings, ui };

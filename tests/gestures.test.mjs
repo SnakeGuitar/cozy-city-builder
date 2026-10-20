@@ -53,5 +53,9 @@ test('mouse painting starts at once for roads and demolition', () => {
   const g = createGestureTracker();
   assert.deepEqual(types(g.down(P(1, 10, 10), { paintMode: true })), ['paint']);
   assert.ok(types(g.move(P(1, 40, 10))).includes('paint'));
-  assert.deepEqual(types(g.up(P(1, 40, 10))), [], 'a dragged paint is not also a click');
+  assert.deepEqual(types(g.up(P(1, 40, 10))), ['paint_end'], 'a dragged paint ends, and is not also a click');
+  g.down(P(2, 10, 10), { paintMode: true });
+  const tap = g.up(P(2, 10, 10));
+  assert.deepEqual(types(tap), ['paint_end', 'click'], 'a painted tap ends the stroke, then clicks');
+  assert.equal(tap[1].touch, false);
 });

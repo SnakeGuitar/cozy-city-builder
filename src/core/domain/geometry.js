@@ -14,7 +14,7 @@ export function normAngle(a) {
   let r = a % TAU; if (r < 0) r += TAU;
   const q = Math.round(r / QUARTER);
   if (Math.abs(r - q * QUARTER) < 1e-9) r = (q % 4) * QUARTER;
-  return r;
+  return r + 0; // never −0
 }
 /** [cos, sin] with exact values at quarter turns (keeps grid-aligned boxes free of rounding noise). */
 export function cosSin(a) {

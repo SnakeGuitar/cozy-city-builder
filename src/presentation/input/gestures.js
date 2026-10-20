@@ -1,5 +1,5 @@
 // Pointer gesture interpreter, pure (no DOM): pointer events in, intents out.
-//   intents: hover · pan · orbit · pinch(factor) · twist(angle) · paint(x, y, dragging) · click(x, y, painted) · cancel
+//   intents: hover · pan · orbit · pinch(factor) · twist(angle) · paint(x, y, dragging) · paint_end(x, y, touch) · click(x, y, painted, touch) · cancel
 // Rules that keep camera gestures from building by accident:
 //   · a second finger turns the whole touch into a camera gesture: no paint, no click until every finger lifts;
 //   · any drag past the threshold is a camera move, never a click;
@@ -47,10 +47,11 @@ export function createGestureTracker() {
       if (!cur) return [];
       if (cur.kind === 'multi') { if (pts.size === 0) g = null; return []; }
       g = null;
-      if (cur.moved) return [];
+      if (cur.moved) return cur.painting ? [{ type: 'paint_end', x: p.x, y: p.y, touch: !!cur.touch }] : [];
       if (cur.btn === 2) return [{ type: 'cancel' }];
       if (cur.btn !== 0) return [];
-      return [{ type: 'click', x: p.x, y: p.y, painted: cur.painting }];
+      const click = { type: 'click', x: p.x, y: p.y, painted: cur.painting, touch: !!cur.touch };
+      return cur.painting ? [{ type: 'paint_end', x: p.x, y: p.y, touch: !!cur.touch }, click] : [click];
     },
     cancel(p) { pts.delete(p.id); if (pts.size === 0) g = null; return []; },
     get active() { return !!g; },

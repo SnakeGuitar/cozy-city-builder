@@ -3,6 +3,8 @@ export * from './config/index.js';
 export * from './domain/state.js';
 export * from './domain/geometry.js';
 export * from './domain/space.js';
+export * from './domain/snap.js';
+export * from './domain/roadQuery.js';
 export * from './simulation/index.js';
 export * from './goals/goals.js';
 export * from './commands/commands.js';
