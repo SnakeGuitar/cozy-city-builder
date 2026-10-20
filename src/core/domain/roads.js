@@ -128,6 +128,13 @@ export function nearestRoadPoint(state, x, z, maxDist = 1) {
     if (key[0] === 's') {
       const seg = r.segments[id], c = closestOnPolyline(segmentPolyline(state, seg), x, z), d = c.d - seg.width / 2;
       if (d <= maxDist && (!best || d < best.d)) { const L = Math.hypot(x - c.x, z - c.z); best = { x: c.x, z: c.z, nx: L > 1e-9 ? (x - c.x) / L : -c.tz, nz: L > 1e-9 ? (z - c.z) / L : c.tx, half: seg.width / 2, d, segmentId: id, s: c.s, tx: c.tx, tz: c.tz }; }
+    } else if (r.nodes[id].width) {
+      // a grid road cell is a square pad: distance to the square, normal from its nearest side
+      const n = r.nodes[id], h = n.width / 2, dx = x - n.position.x, dz = z - n.position.z, ox = Math.abs(dx) - h, oz = Math.abs(dz) - h;
+      const d = ox > 0 || oz > 0 ? Math.hypot(Math.max(ox, 0), Math.max(oz, 0)) : Math.max(ox, oz), alongX = ox >= oz;
+      const nx = alongX ? Math.sign(dx || 1) : 0, nz = alongX ? 0 : Math.sign(dz || 1);
+      const ex = alongX ? n.position.x + nx * h : n.position.x + Math.max(-h, Math.min(h, dx)), ez = alongX ? n.position.z + Math.max(-h, Math.min(h, dz)) : n.position.z + nz * h;
+      if (d <= maxDist && (!best || d < best.d - 1e-9)) best = { x: ex, z: ez, nx, nz, half: 0, d, nodeId: id };
     } else {
       const n = r.nodes[id], rad = nodeRadius(state, id), L = Math.hypot(x - n.position.x, z - n.position.z), d = L - rad;
       if (d <= maxDist && (!best || d < best.d - 1e-9)) best = { x: n.position.x, z: n.position.z, nx: L > 1e-9 ? (x - n.position.x) / L : 1, nz: L > 1e-9 ? (z - n.position.z) / L : 0, half: rad, d, nodeId: id };
