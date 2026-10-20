@@ -23,7 +23,8 @@ const CHUNK = 8, BATCH_BUDGET_MS = 6;
 const chunkKey = p => Math.floor(p.x / CHUNK) + ',' + Math.floor(p.z / CHUNK);
 
 /** baseOf(b) → { base, low }: the ground height a building stands at and the lowest ground under it (for a plinth). */
-export function createBuildingViews(scene, ambient, baseOf = () => ({ base: 0, low: 0 })) {
+/** `modelOf(b)` may return a building's own model (custom buildings); null falls back to the catalogue model. */
+export function createBuildingViews(scene, ambient, baseOf = () => ({ base: 0, low: 0 }), modelOf = () => null) {
   const root = new THREE.Group(); scene.add(root);
   const views = new Map(); // id -> { group, sway[], swayPh, smoke[], smokeT, type, chunk, animating, hidden, batched }
   const anims = [];
@@ -78,7 +79,7 @@ export function createBuildingViews(scene, ambient, baseOf = () => ({ base: 0, l
   }
 
   function build(b) {
-    const d = DEFS[b.type], group = new THREE.Group(), o = getProto(b.type, variantOf(b.type, b.seed), b.tier || 1).clone();
+    const d = DEFS[b.type], group = new THREE.Group(), o = (modelOf(b) || getProto(b.type, variantOf(b.type, b.seed), b.tier || 1)).clone();
     o.rotation.y = b.rotation; group.add(o);
     const blob = new THREE.Mesh(blobGeo, blobMat); blob.scale.set(d.s * 1.3, 1, d.s * 1.3); blob.position.y = .006; blob.userData.blob = true; group.add(blob);
     for (const a of o.userData.anchors.glow) { const sp = new THREE.Sprite(glowMat); sp.position.copy(a); sp.scale.setScalar(.5); o.add(sp); }

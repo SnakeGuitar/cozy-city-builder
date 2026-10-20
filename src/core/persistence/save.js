@@ -13,6 +13,9 @@
 //   v8 — game.map = { size, seed, generatorVersion, biomePreset, terrain }: generated terrain is stored with the game
 //        (heights and cell data), so a map never changes when the generator does. Older towns get the classic
 //        meadow: 24 × 24, flat, preset 'classic', terrain null — exactly the ground they were built on.
+//   v9 — custom buildings: game.blueprints = [{ id, name, latest, versions: [blueprint …] }] (domain/blueprint.js,
+//        each version carries its own `schema`, migrated separately) and game.nextBlueprintId; a building built from
+//        a blueprint stores blueprint: { id, version }. Older towns get an empty library; nothing else changes.
 //
 // Repair policy: saves up to v3 always had a café, so one without it is damaged and the café is restored.
 // From v4 an empty map (no café yet) is a normal new game and is never "repaired".
@@ -28,7 +31,8 @@ import { createMap } from '../domain/terrain.js';
 import { MAP_PRESETS, MAP_SIZES, GENERATOR_VERSION, CLASSIC_PRESET, BIOME_IDS, MAP_MARGIN } from '../config/biomes.js';
 import { createEmptyState, listBuildings } from '../domain/state.js';
 import { clamp } from '../util/math.js';
-export const SAVE_VERSION = 8;
+import { normalizeBlueprint, validateBlueprint } from '../domain/blueprint.js';
+export const SAVE_VERSION = 9;
 const LEGACY_MAP = 24; // every map before v6 was 24 × 24 cells
 // v1 (Strawberry Borough) building ids → current ids
 export const LEGACY_TYPES = Object.freeze({ houseA: 'fr_trad', houseB: 'fr_trad', houseC: 'fr_cont' });
@@ -43,10 +47,38 @@ export function serializeGame(state) {
     nextId: state.nextId, rngSeed: state.rngSeed,
     map: serializeMap(state),
     roads: serializeRoads(state),
-    buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, position: { x: b.position.x, z: b.position.z }, rotation: b.rotation, seed: b.seed, well: b.well, open: b.open })),
+    blueprints: serializeBlueprints(state), nextBlueprintId: state.nextBlueprintId || 1,
+    buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, position: { x: b.position.x, z: b.position.z }, rotation: b.rotation, seed: b.seed, well: b.well, open: b.open,
+      ...(b.blueprint ? { blueprint: { id: b.blueprint.id, version: b.blueprint.version } } : {}) })),
   };
 }
 export { serializeRoads, normalizeRoads };
+/** The blueprint library as a list sorted by id number; versions in ascending order. Plain copies. */
+export function serializeBlueprints(state) {
+  return Object.values(state.blueprints || {}).sort((a, b) => +a.id.slice(2) - +b.id.slice(2))
+    .map(e => ({ id: e.id, name: e.name, latest: e.latest, versions: Object.keys(e.versions).map(Number).sort((a, b) => a - b).map(v => JSON.parse(JSON.stringify(e.versions[v]))) }));
+}
+/**
+ * Validates an untrusted library. Each version is migrated, normalised and checked; versions that fail are dropped
+ * with a warning (buildings using them fall back to their base type's model and keep working).
+ */
+export function normalizeBlueprints(raw, warn = () => {}) {
+  const lib = {}; let top = 0;
+  for (const e of Array.isArray(raw) ? raw : []) {
+    if (!e || typeof e !== 'object' || typeof e.id !== 'string' || !/^bp\d{1,9}$/.test(e.id) || lib[e.id]) { warn('blueprint entry without a valid id'); continue; }
+    const versions = {};
+    for (const v of Array.isArray(e.versions) ? e.versions : []) {
+      const bp = normalizeBlueprint(v, m => warn(`${e.id}: ${m}`));
+      if (!bp || !Number.isInteger(v.version) || v.version < 1 || versions[v.version]) { warn(`${e.id}: unreadable version dropped`); continue; }
+      if (!validateBlueprint(bp).ok) { warn(`${e.id} v${v.version}: invalid design dropped`); continue; }
+      versions[v.version] = { ...bp, id: e.id, version: v.version };
+    }
+    const nums = Object.keys(versions).map(Number); if (!nums.length) { warn(`${e.id}: no usable version, removed`); continue; }
+    const latest = Math.max(...nums);
+    lib[e.id] = { id: e.id, name: versions[latest].name, latest, versions }; top = Math.max(top, +e.id.slice(2));
+  }
+  return { blueprints: lib, next: top + 1 };
+}
 export function serializeMap(state) {
   const m = state.map || createMap(), T = m.terrain;
   return { size: m.size, seed: m.seed, generatorVersion: m.generatorVersion, biomePreset: m.biomePreset,
@@ -97,6 +129,10 @@ const MIGRATIONS = {
     if (!d.game || typeof d.game !== 'object') throw new Error('v4 save without game data');
     const list = Array.isArray(d.game.buildings) ? d.game.buildings : [];
     return { ...d, v: 5, game: { ...d.game, buildings: list.map(b => (b && typeof b === 'object' ? { ...b, tier: 1 } : b)) } };
+  },
+  8: d => {
+    if (!d.game || typeof d.game !== 'object') throw new Error('v8 save without game data');
+    return { ...d, v: 9, game: { ...d.game, blueprints: [], nextBlueprintId: 1 } };
   },
   7: d => {
     if (!d.game || typeof d.game !== 'object') throw new Error('v7 save without game data');
@@ -157,6 +193,8 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     goalsDone: [...new Set((Array.isArray(g.goalsDone) ? g.goalsDone : []).filter(id => GOALS.some(x => x.id === id)))],
     rngSeed: int(g.rngSeed, 0x5eed1e, 0, 0xffffffff),
   });
+  const lib = normalizeBlueprints(g.blueprints, warn);
+  state.blueprints = lib.blueprints; state.nextBlueprintId = Math.max(lib.next, int(g.nextBlueprintId, 1, 1));
   const list = Array.isArray(g.buildings) ? g.buildings : (warn('buildings missing'), []);
   const usedIds = new Set(), pending = [], strayCells = [];
   for (const raw of list) {
@@ -173,7 +211,13 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     if (!id || usedIds.has(id)) { if (raw.id !== undefined) warn(`${type}: duplicate or invalid id ${raw.id}`); id = 0; }
     if (id) usedIds.add(id);
     const top = maxTierOf(type), tier = raw.tier === undefined ? 1 : Number.isInteger(raw.tier) && raw.tier >= 1 && raw.tier <= top ? raw.tier : (warn(`${type}: tier ${raw.tier} reset to ${clamp(int(raw.tier, 1), 1, top)}`), clamp(int(raw.tier, 1), 1, top));
-    pending.push({ type, tier, position: { x: pos.x, z: pos.z }, rotation, seed, id, well: num(raw.well, 50, 0, 100), open: typeof raw.open === 'boolean' ? raw.open : true });
+    let blueprint = null;
+    if (raw.blueprint !== undefined) {
+      const ref = raw.blueprint, bp = ref && typeof ref === 'object' && Number.isInteger(ref.version) && state.blueprints[ref.id]?.versions[ref.version];
+      if (bp && bp.baseType === type) blueprint = { id: ref.id, version: ref.version };
+      else warn(`${type}: blueprint ${ref?.id} v${ref?.version} missing, drawn as a ${type}`);
+    }
+    pending.push({ type, tier, position: { x: pos.x, z: pos.z }, rotation, seed, id, well: num(raw.well, 50, 0, 100), open: typeof raw.open === 'boolean' ? raw.open : true, blueprint });
   }
   state.nextId = Math.max(int(g.nextId, 1, 1), ...[...usedIds].map(i => i + 1), 1);
   for (const p of pending) {
@@ -181,7 +225,7 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     if (why) { warn(`${p.type} at ${p.position.x},${p.position.z}: ${why}`); if (p.id) usedIds.delete(p.id); continue; }
     if (p.type === LANDMARK && Object.values(state.buildings).some(b => b.type === LANDMARK)) { warn('second café dropped'); continue; }
     const b = insertBuilding(state, p.type, p, p.seed, p.id || state.nextId, p.tier);
-    b.well = p.well; b.open = p.open;
+    b.well = p.well; b.open = p.open; if (p.blueprint) b.blueprint = p.blueprint;
   }
   state.roads = normalizeRoads(g.roads, warn);
   // road cells found among buildings (damaged or hand-edited documents) join the network instead of vanishing

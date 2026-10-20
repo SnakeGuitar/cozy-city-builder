@@ -5,6 +5,8 @@ import { DEFS } from '../../core/config/catalog.js';
 import { buildingAtPoint, mapHalf, footprintObb } from '../../core/domain/space.js';
 import { obbCorners } from '../../core/domain/geometry.js';
 import { heightAt } from '../../core/domain/terrain.js';
+import { getBlueprint } from '../../core/domain/blueprint.js';
+import { blueprintProto } from './blueprintModel.js';
 import { windowMat, lampMat } from './art.js';
 import { createScene, applyDayLight } from './scene.js';
 import { createCameraRig } from './cameraRig.js';
@@ -28,7 +30,9 @@ export function createThreeView(container, { time = (name, fn) => fn() } = {}) {
   const baseOf = b => { if (!current?.map?.terrain) return { base: 0, low: 0 }; const pts = [b.position, ...obbCorners(footprintObb(b.type, b.position, b.rotation))].map(p => ground(p.x, p.z)); return { base: Math.max(...pts), low: Math.min(...pts) }; };
   const terrain = createTerrainView(sc);
   const ambient = createAmbient(sc.scene, rig.target, ground);
-  const buildings = createBuildingViews(sc.scene, ambient, baseOf);
+  // a custom building is drawn from the exact blueprint version it was built from (a missing one: its base type)
+  const modelOf = b => { const bp = b.blueprint && current && getBlueprint(current, b.blueprint); return bp ? blueprintProto(bp) : null; };
+  const buildings = createBuildingViews(sc.scene, ambient, baseOf, modelOf);
   const roads = createRoadView(sc.scene);
   const overlays = createOverlays(sc.scene, ground);
   let night = 0;

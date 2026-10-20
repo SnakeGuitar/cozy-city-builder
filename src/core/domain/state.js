@@ -19,6 +19,7 @@ export function createEmptyState(overrides = {}) {
     buildings: {},                       // id -> building record
     roads: createRoads(),                // road graph: nodes and segments (domain/roads.js)
     map: createMap(),                    // size, seed, generator version, biome preset and terrain (domain/terrain.js)
+    blueprints: {}, nextBlueprintId: 1,  // custom building designs: id -> { id, name, latest, versions } (domain/blueprint.js)
     spatial: {},                         // derived spatial hash (domain/space.js); never saved
     ...overrides,
   };

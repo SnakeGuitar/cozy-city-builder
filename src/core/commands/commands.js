@@ -10,21 +10,37 @@ import { makeObb } from '../domain/geometry.js';
 import { normAngle, angleToQuarter, QUARTER } from '../domain/geometry.js';
 import { unlockedTypes } from '../goals/goals.js';
 import { nextRandom } from '../util/random.js';
+import { normalizeBlueprint, validateBlueprint, getBlueprint, blueprintsOf, blueprintUsers, blueprintExtraCost, entranceOf, sameDesign, nextBlueprintId } from '../domain/blueprint.js';
+import { FACE_ANGLE } from '../config/modules.js';
 
 export const CMD = Object.freeze({ Place: 'PlaceBuilding', Move: 'MoveBuilding', Rotate: 'RotateBuilding', Demolish: 'DemolishBuilding', Upgrade: 'UpgradeBuilding',
-  BuildRoad: 'BuildRoad', DemolishRoad: 'DemolishRoad', EditRoad: 'EditRoad', RestoreRoads: 'RestoreRoads', SetSpeed: 'SetSpeed', TogglePause: 'TogglePause', TutorialSignal: 'TutorialSignal' });
+  BuildRoad: 'BuildRoad', DemolishRoad: 'DemolishRoad', EditRoad: 'EditRoad', RestoreRoads: 'RestoreRoads', SaveBlueprint: 'SaveBlueprint', DeleteBlueprint: 'DeleteBlueprint', Remodel: 'RemodelBuilding', SetSpeed: 'SetSpeed', TogglePause: 'TogglePause', TutorialSignal: 'TutorialSignal' });
 /** Commands that change the map (the application recomputes the town after them). */
-export const STRUCTURAL = new Set([CMD.Place, CMD.Move, CMD.Rotate, CMD.Demolish, CMD.Upgrade, CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad, CMD.RestoreRoads]);
+export const STRUCTURAL = new Set([CMD.Place, CMD.Move, CMD.Rotate, CMD.Demolish, CMD.Upgrade, CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad, CMD.RestoreRoads, CMD.Remodel]);
 /** Commands that change only the road network (front ends may offer undo / redo for these). */
 export const ROAD_COMMANDS = new Set([CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad]);
 
 const reject = (cmd, reason) => ({ ok: false, reason, events: [{ type: 'command_rejected', command: cmd.type, reason }] });
 const coinsEvent = (state, delta) => ({ type: 'coins_changed', coins: state.coins, delta });
 /** Coins returned for demolishing a building of `type` at `tier` (half of its price and of the upgrades paid for). */
-export const refundOf = (type, tier = 1) => Math.floor(investedIn(type, tier) * ECON.refundRate);
+export const refundOf = (type, tier = 1, extra = 0) => Math.floor((investedIn(type, tier) + extra) * ECON.refundRate);
+/** Coins a custom building's blueprint added to its price (0 for catalogue buildings or a missing blueprint). */
+export const blueprintExtraOf = (state, b) => { const bp = b.blueprint && getBlueprint(state, b.blueprint); return bp ? blueprintExtraCost(bp) : 0; };
 /** What a building costs / returns under the state's rules (sandbox: nothing). `b` is a type id or a building record. */
 export const costFor = (state, type) => rulesFor(state).buildCostsEnabled ? DEFS[type].cost : 0;
-export const refundFor = (state, b) => rulesFor(state).refundsEnabled ? (typeof b === 'string' ? refundOf(b) : refundOf(b.type, b.tier || 1)) : 0;
+export const refundFor = (state, b) => rulesFor(state).refundsEnabled ? (typeof b === 'string' ? refundOf(b) : refundOf(b.type, b.tier || 1, blueprintExtraOf(state, b))) : 0;
+/** Price of a custom building from a saved blueprint version under the state's rules (sandbox: free). */
+export const blueprintPriceFor = (state, bp) => rulesFor(state).buildCostsEnabled ? DEFS[bp.baseType].cost + blueprintExtraCost(bp) : 0;
+/**
+ * Why a blueprint ({ id, version? }) cannot be built now, or null: 'missingBlueprint' · 'invalidBlueprint' · 'locked'.
+ * Saved versions were valid when saved; this re-checks so a damaged library can never place a broken building.
+ */
+export function blueprintBlocker(state, ref) {
+  const bp = getBlueprint(state, ref); if (!bp) return 'missingBlueprint';
+  if (!validateBlueprint(bp).ok) return 'invalidBlueprint';
+  if (!unlockedTypes(state).has(bp.baseType)) return 'locked';
+  return null;
+}
 export const canAfford = (state, type) => rulesFor(state).unlimitedMoney || state.coins >= costFor(state, type);
 /** Price of taking a building from its tier to the next one under the state's rules (sandbox: free). */
 export const upgradeCostFor = (state, b) => rulesFor(state).buildCostsEnabled ? (tierOf(b.type, (b.tier || 1) + 1)?.upgradeCost ?? 0) : 0;
@@ -60,8 +76,13 @@ function poseFor(state, type, cmd, fallbackRotation = 0) {
   else if (Number.isInteger(cmd.x) && Number.isInteger(cmd.y)) pose = tileToPose(state, type, cmd.x, cmd.y, Number.isInteger(cmd.r) ? cmd.r : angleToQuarter(fallbackRotation));
   else return null;
   if (isRoadType(type)) { const g = snapToGrid(state, type, pose.position, 0); return { position: g.position, rotation: 0 }; }
-  if (cmd.autoFace !== false) pose.rotation = autoFace(state, type, pose.position, pose.rotation);
+  if (cmd.autoFace !== false) { const fa = frontOffset(state, cmd); pose.rotation = normAngle(autoFace(state, type, pose.position, normAngle(pose.rotation + fa)) - fa); }
   return pose;
+}
+/** A custom building faces the road with its entrance: how far its entrance side is turned from the local front. */
+function frontOffset(state, cmd) {
+  const bp = cmd.blueprint && getBlueprint(state, cmd.blueprint), e = bp && entranceOf(bp);
+  return e ? FACE_ANGLE[e.side] : 0;
 }
 const poseEvent = b => ({ position: { ...b.position }, rotation: b.rotation });
 /** The seed the next placement will get (lets a preview show the right visual variant). Pure. */
@@ -90,20 +111,28 @@ function placeRoadCell(state, cmd, type) {
 }
 
 const handlers = {
+  /**
+   * Places a building: { buildingType, position, rotation } (or grid { x, y, r }), optional seed and autoFace.
+   * A custom building passes `blueprint: { id, version? }` instead of a type: its base type gives the rules and the
+   * footprint, the blueprint's parts add to the price. The building remembers the exact version it was built from.
+   */
   [CMD.Place](state, cmd) {
-    const { buildingType: type } = cmd, d = DEFS[type];
+    let bp = null;
+    if (cmd.blueprint) { const why = blueprintBlocker(state, cmd.blueprint); if (why) return reject(cmd, why); bp = getBlueprint(state, cmd.blueprint); }
+    const type = bp ? bp.baseType : cmd.buildingType, d = DEFS[type];
     if (!d) return reject(cmd, 'unknown');
     if (!unlockedTypes(state).has(type)) return reject(cmd, 'locked');
     if (isRoadType(type)) return placeRoadCell(state, cmd, type);
     if (d.unique && Object.values(state.buildings).some(b => b.type === type)) return reject(cmd, 'unique');
     const pose = poseFor(state, type, cmd); if (!pose) return reject(cmd, 'outside');
     const why = canPlace(state, type, pose.position, pose.rotation); if (why) return reject(cmd, why);
-    if (!canAfford(state, type)) return reject(cmd, 'notEnough');
+    const cost = bp ? blueprintPriceFor(state, bp) : costFor(state, type);
+    if (!canAffordCoins(state, cost)) return reject(cmd, 'notEnough');
     const seed = Number.isInteger(cmd.seed) && cmd.seed >= 0 ? cmd.seed : drawSeed(state);
-    const cost = costFor(state, type);
     state.coins -= cost;
     const b = insertBuilding(state, type, pose, seed);
-    const events = [{ type: 'building_placed', id: b.id, buildingType: type, ...poseEvent(b), seed, tier: b.tier }];
+    if (bp) b.blueprint = { id: bp.id, version: bp.version };
+    const events = [{ type: 'building_placed', id: b.id, buildingType: type, ...poseEvent(b), seed, tier: b.tier, ...(bp ? { blueprint: { ...b.blueprint } } : {}) }];
     if (cost) events.push(coinsEvent(state, -cost));
     return { ok: true, id: b.id, events };
   },
@@ -216,6 +245,54 @@ const handlers = {
     const events = [{ type: 'roads_replaced' }];
     if (delta && !rulesFor(state).unlimitedMoney) events.push(coinsEvent(state, delta));
     return { ok: true, events };
+  },
+  /**
+   * Saves a design as a new immutable version: { blueprint }. A blueprint without an id (or `asNew: true`) starts a
+   * new library entry; otherwise it becomes the next version of its entry, whose base type it must keep (buildings
+   * of older versions keep their footprint and rules). An unchanged design is not saved again.
+   * Rejects 'invalidBlueprint' with the validation `issues` so the editor can explain them.
+   */
+  [CMD.SaveBlueprint](state, cmd) {
+    const warnings = [], bp = normalizeBlueprint(cmd.blueprint, w => warnings.push(w)); if (!bp) return reject(cmd, 'invalidBlueprint');
+    const check = validateBlueprint(bp); if (!check.ok) return { ...reject(cmd, 'invalidBlueprint'), issues: check.issues };
+    const lib = state.blueprints || (state.blueprints = {}), entry = !cmd.asNew && bp.id && lib[bp.id];
+    if (entry) {
+      const last = entry.versions[entry.latest];
+      if (last.baseType !== bp.baseType) return reject(cmd, 'baseTypeChanged');
+      if (last.name === bp.name && sameDesign(last, bp)) return { ok: true, id: entry.id, version: entry.latest, unchanged: true, events: [] };
+      const version = entry.latest + 1, saved = { ...bp, id: entry.id, version };
+      entry.versions[version] = saved; entry.latest = version; entry.name = saved.name;
+      return { ok: true, id: entry.id, version, events: [{ type: 'blueprint_saved', id: entry.id, version, name: saved.name }] };
+    }
+    const id = nextBlueprintId(state); state.nextBlueprintId = (state.nextBlueprintId || 1) + 1;
+    lib[id] = { id, name: bp.name, latest: 1, versions: { 1: { ...bp, id, version: 1 } } };
+    return { ok: true, id, version: 1, events: [{ type: 'blueprint_saved', id, version: 1, name: bp.name, created: true }] };
+  },
+  /** Removes a blueprint and all its versions: { id }. Refused ('inUse') while any building or villa uses it. */
+  [CMD.DeleteBlueprint](state, cmd) {
+    const lib = blueprintsOf(state); if (!lib[cmd.id]) return reject(cmd, 'missingBlueprint');
+    const users = blueprintUsers(state, cmd.id);
+    if (users.buildings.length || users.villas.length) return { ...reject(cmd, 'inUse'), users };
+    delete lib[cmd.id];
+    return { ok: true, events: [{ type: 'blueprint_deleted', id: cmd.id }] };
+  },
+  /**
+   * Rebuilds a custom building from another version of its blueprint: { id, version }. Rules and footprint stay
+   * (same base type); a dearer design costs the difference, a cheaper one gives back half of it.
+   */
+  [CMD.Remodel](state, cmd) {
+    const b = state.buildings[cmd.id]; if (!b) return reject(cmd, 'missing');
+    if (!b.blueprint) return reject(cmd, 'notCustom');
+    const ref = { id: b.blueprint.id, version: cmd.version }, why = blueprintBlocker(state, ref); if (why) return reject(cmd, why);
+    const to = getBlueprint(state, ref); if (to.baseType !== b.type) return reject(cmd, 'baseTypeChanged');
+    if (to.version === b.blueprint.version) return reject(cmd, 'sameVersion');
+    const diff = blueprintExtraCost(to) - blueprintExtraOf(state, b), rules = rulesFor(state);
+    const cost = !rules.buildCostsEnabled ? 0 : diff > 0 ? diff : -Math.floor(-diff * (rules.refundsEnabled ? ECON.refundRate : 0));
+    if (cost > 0 && !canAffordCoins(state, cost)) return reject(cmd, 'notEnough');
+    const from = b.blueprint.version; state.coins -= cost; b.blueprint = { id: to.id, version: to.version };
+    const events = [{ type: 'building_remodeled', id: b.id, blueprint: { ...b.blueprint }, fromVersion: from, cost }];
+    if (cost) events.push(coinsEvent(state, -cost));
+    return { ok: true, id: b.id, events };
   },
   [CMD.SetSpeed](state, cmd) {
     if (!SPEEDS.includes(cmd.speed)) return reject(cmd, 'badSpeed');
