@@ -32,7 +32,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f-ui);o
 #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,0) 60%,rgba(140,100,60,.16) 100%);}
 #world-ui{position:fixed;inset:0;pointer-events:none;overflow:hidden;}
 button{font-family:inherit;color:inherit;cursor:pointer;}
-button:focus-visible{outline:2px solid var(--lime-deep);outline-offset:2px;}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--lime-deep);outline-offset:2px;}
 .ico{width:18px;height:18px;flex:none;display:block;}
 
 /* ---------- top bar ---------- */
@@ -103,6 +103,7 @@ button:focus-visible{outline:2px solid var(--lime-deep);outline-offset:2px;}
 .item.locked{opacity:.6;}
 .item.locked .th img{filter:grayscale(.85) sepia(.3);opacity:.6;}
 .item.poor .pr{color:var(--warn);}
+.item.poor .pr::before{content:'⚠';margin-right:2px;} /* not by colour alone */
 .item .badge{position:absolute;top:4px;right:4px;font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:999px;background:var(--lime-deep);color:#fff;}
 .item .badge.lock{background:#e8dcc4;color:var(--ink-soft);}
 .item .badge.uniq{background:var(--butter);color:var(--ink);}

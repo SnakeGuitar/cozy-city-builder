@@ -15,7 +15,9 @@ const N = GRID_SIZE;
 export const RELATION_COLOURS = { inc: '#b98a12', well: '#4f8a1e', svc: '#3f7a8c' };
 
 /** `ground(x, z)` is the terrain height (0 on flat maps): every marker sits on it. */
-export function createOverlays(scene, ground = () => 0) {
+/** `still`: previews do not bob (reduced motion). */
+export function createOverlays(scene, ground = () => 0, { still = false } = {}) {
+  const bob = (time, a) => (still ? 0 : Math.sin(time * 3.3) * a);
   const gridMat = new THREE.LineBasicMaterial({ color: '#6a4631', transparent: true, opacity: .16 });
   /** Grid lines over the whole map, draped on the ground in half-cell steps. */
   function makeGrid(half) {
@@ -142,7 +144,7 @@ export function createOverlays(scene, ground = () => 0) {
       const key = blueprint ? `bp:${blueprint.id}@${blueprint.version}` : type + ':' + variant + ':' + tier;
       if (ghostKey !== key) { dropGhost(); ghost = ghostOf(type, variant, tier, blueprint); ghostKey = key; scene.add(ghost); }
       ghost.visible = true;
-      ghost.position.set(position.x, ground(position.x, position.z) + (ok ? .06 + Math.sin(time * 3.3) * .015 : .02), position.z); ghost.rotation.y = rotation;
+      ghost.position.set(position.x, ground(position.x, position.z) + (ok ? .06 + bob(time, .015) : .02), position.z); ghost.rotation.y = rotation;
     },
     hideGhost() { if (ghost) ghost.visible = false; if (vghost) vghost.visible = false; },
     /**
@@ -153,7 +155,7 @@ export function createOverlays(scene, ground = () => 0) {
       if (vghostKey !== key) { dropVillaGhost(); vghost = villaPreview(state, v); vghostKey = key;
         vghost.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .62; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); c.castShadow = false; } if (c.isLineSegments) c.material = ghostEdge; });
         scene.add(vghost); }
-      vghost.visible = true; vghost.position.set(pose.position.x, ground(pose.position.x, pose.position.z) + (ok ? .05 + Math.sin(time * 3.3) * .012 : .02), pose.position.z); vghost.rotation.y = pose.rotation;
+      vghost.visible = true; vghost.position.set(pose.position.x, ground(pose.position.x, pose.position.z) + (ok ? .05 + bob(time, .012) : .02), pose.position.z); vghost.rotation.y = pose.rotation;
     },
     clearVillaGhost() { dropVillaGhost(); },
     /** The frame drawn to capture a villa ({ minX, maxX, minZ, maxZ }, or null to hide); amber when nothing is inside. */

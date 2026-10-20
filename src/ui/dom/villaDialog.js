@@ -3,7 +3,7 @@
 // villa contains, its size and price and a picture, and explains any problem. The core validates and stores.
 import { CMD } from '../../core/commands/commands.js';
 import { captureVilla, validateVilla, getVilla, villaContents, villaCost, villaUsers, groupsOf, groupAsVilla, FENCE_STYLES, GATE_SIDES, VILLA_LIMITS } from '../../core/domain/villa.js';
-import { ico } from './dom.js';
+import { ico, trapTab } from './dom.js';
 import { t } from './i18n.js';
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -71,7 +71,7 @@ export function createVillaDialog({ root, game, thumbOf, toast, onSaved = () => 
     render(); root.querySelector('#' + e.target.id)?.focus();
   });
   // keys typed here never reach the town (R, G, Delete …); Escape closes the dialog
-  root.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); close(); } });
+  root.addEventListener('keydown', e => { e.stopPropagation(); trapTab(root, e); if (e.key === 'Escape') { e.preventDefault(); close(); } });
 
   return {
     get isOpen() { return !root.hidden; },

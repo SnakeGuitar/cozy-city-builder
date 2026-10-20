@@ -6,7 +6,7 @@ import { DEFS } from '../../core/config/catalog.js';
 import { MODULES, MODULE_CATS, FACES, searchModules, BLUEPRINT_LIMITS } from '../../core/config/modules.js';
 import { anchorsFor, partSubtree, blueprintBaseTypes, blueprintUsers, getBlueprint } from '../../core/domain/blueprint.js';
 import { CMD } from '../../core/commands/commands.js';
-import { $, ico } from './dom.js';
+import { $, ico, trapTab } from './dom.js';
 import { t } from './i18n.js';
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -235,6 +235,7 @@ export function createEditorUI({ root, game, openModel, createView, recover, onC
       if (el.dataset.anchor !== undefined) ed.reattach(ed.primary, ed.part(ed.primary).parent, el.value);
     });
     root.addEventListener('keydown', e => {
+      trapTab(dialog ? $('ed-dialog') : root, e); // a modal screen: focus stays inside (and inside a dialog while one is open)
       if (!ed || dialog) { if (dialog && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeDialog(false); } return; }
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName), k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
       if (mod && k === 'z') { e.preventDefault(); if (e.shiftKey) ed.redo(); else ed.undo(); return; }
@@ -267,7 +268,7 @@ export function createEditorUI({ root, game, openModel, createView, recover, onC
     const opts = { blueprint: draft || bp, baseType, name: t('ed_newName'), onChange: kind => refresh(kind) };
     if (draft) { opts.original = bp; opts.recovered = true; } // a recovered draft is unsaved and compares with the version it came from
     ed = openModel(opts);
-    if (!keepView) { if (view) view.dispose(); view = createView($('ed-stage'), { reducedMotion, onGizmo: g => { if (g.size) ed.updatePart(g.id, { size: g.size }, 'gizmo'); else ed.transformPart(g.id, { pose: g.pose }); if (g.phase === 'end') ed.endGesture(); } }); view.setSnaps(snaps); bindStage(); }
+    if (!keepView) { if (view) view.dispose(); view = createView($('ed-stage'), { reducedMotion, onGizmo: g => { if (g.size) ed.updatePart(g.id, { size: g.size }, 'gizmo'); else ed.transformPart(g.id, { pose: g.pose }); if (g.phase === 'end') ed.endGesture(); } }); view.setSnaps(snaps); view.canvas.setAttribute('aria-label', t('ed_canvasLabel')); bindStage(); }
     comparing = false; view.compare(null); $('ed-cmp').hidden = true;
     renderLibrary(); refresh('edit');
   }

@@ -29,7 +29,7 @@ const saveSettings = () => writeSettings(storage, settings);
 const audio = createAudio(settings.muted);
 
 const perf = createPerfStats(), now = () => performance.now();
-const view = createThreeView(document.getElementById('stage'), { time: (name, fn) => perf.time(name, fn, now) });
+const view = createThreeView(document.getElementById('stage'), { time: (name, fn) => perf.time(name, fn, now), reducedMotion });
 const thumbs = renderThumbnails();
 paintPaper(mulberry32);
 

@@ -34,13 +34,14 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
     if (k === 'f3') { e.preventDefault(); onTogglePerf?.(); return; }
     if (!isPlaying()) { if (k === 'escape') { e.preventDefault(); onEscape(); } return; }
     keys.add(k);
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && !e.ctrlKey && !e.metaKey) interaction.aimCenter(); // the preview follows the view
     if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); if (k === 'y' || e.shiftKey) interaction.redoRoad(); else interaction.undoRoad(); return; }
     if (k === 'escape') { if (!interaction.cancel()) onEscape(); }
     else if (k === 'q' || k === 'e') camera.rotateStep(k === 'q' ? -1 : 1);
     else if (k === 'c') camera.reset();
     else if (k === 'v') camera.toggleMode();
     else if (k === 'r') interaction.rotate(e.shiftKey ? -1 : 1);
-    else if (k === 'enter' && interaction.pending) interaction.confirmPending();
+    else if (k === 'enter') { if (interaction.pending) interaction.confirmPending(); else interaction.placeAtCenter(); } // keyboard: place at the middle of the view
     else if (k === 'f') interaction.flipCorner();
     else if (k === 'g' && interaction.tool.kind !== 'select') onTogglePlacement?.();
     else if (k === ' ') { e.preventDefault(); game.dispatch({ type: CMD.TogglePause }); }

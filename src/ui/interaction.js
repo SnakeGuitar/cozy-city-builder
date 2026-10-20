@@ -122,7 +122,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     if (at) {
       const c = villaContents(v), coin = '<svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>';
       tip.hidden = false;
-      tip.innerHTML = `${esc(v.name || t('villa'))} · ${tool.kind === 'placeVilla' ? (res.ok ? (res.cost ? `${res.cost} ${coin}` : t('free')) : '') : t('villaMoveFree')} · ${t('villaCount', { n: c.buildings, p: c.paths })}${why ? ` · <span class="bad">✕ ${t(why)}${res.itemId ? ` (${t('villaItem', { n: res.itemId })})` : ''}</span>` : ''}<br><span style="font-weight:600;opacity:.7">${t(tool.kind === 'placeVilla' ? 'villaPlaceHint' : 'villaMoveHint')}</span>`;
+      tip.innerHTML = `${esc(v.name || t('villa'))} · ${tool.kind === 'placeVilla' ? (res.ok ? (res.cost ? `${res.cost} ${coin}` : t('free')) : '') : t('villaMoveFree')} · ${t('villaCount', { n: c.buildings, p: c.paths })}${why ? ` · <span class="bad">✕ ${t(why)}${res.itemId ? ` (${t('villaItem', { n: res.itemId })})` : ''}</span>` : ''}<br><span style="font-weight:600;opacity:.7">${t(tool.kind === 'placeVilla' ? 'villaPlaceHint' : 'villaMoveHint')} · ${t('keysPlace')}</span>`;
       const tx = Math.min(at.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${at.y + 18}px)`;
     }
     return why;
@@ -208,7 +208,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     const hint = isRoadType(tool.type) ? t('roadsHint') : freeMode() ? t(tool.kind === 'move' ? 'movingFree' : 'placingFree') : t(tool.kind === 'move' ? 'moving' : 'placing');
     const snapTag = pose.snapped ? ` · <span class="ok">${t('snapped_' + pose.snapped)}</span>` : '';
     tip.hidden = false;
-    tip.innerHTML = `${bp ? esc(bp.name) : t('n_' + tool.type)} ${tool.kind === 'build' ? `· ${cost ? cost : t('free')} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>${d.upkeep ? ` · −${d.upkeep}${t('perMin')}` : ''}` : ''}${why ? ` · <span class="bad">${t(why)}</span>` : snapTag}<br><span style="font-weight:600;opacity:.7">${hint}</span>`;
+    tip.innerHTML = `${bp ? esc(bp.name) : t('n_' + tool.type)} ${tool.kind === 'build' ? `· ${cost ? cost : t('free')} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>${d.upkeep ? ` · −${d.upkeep}${t('perMin')}` : ''}` : ''}${why ? ` · <span class="bad">${t(why)}</span>` : snapTag}<br><span style="font-weight:600;opacity:.7">${hint} · ${t('keysPlace')}</span>`;
     return why;
   }
   function updateHover() {
@@ -385,6 +385,10 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     armDemolish() { if (selected) { confirmDemo = true; onChange('selection'); } },
     demolishSelected() { if (!selected) return; if (!confirmDemo) { confirmDemo = true; onChange('selection'); } else demolish(selected); },
     buildType(type) { if (tool.kind === 'build' && tool.type === type && !tool.blueprint) return setTool({ kind: 'select' }); select(0); setTool({ kind: 'build', type }); },
+    /** Keyboard aiming: the preview follows the middle of the view while the camera pans (WASD / arrows). */
+    aimCenter() { if (!(building() || villaTool())) return false; mouse = { x: innerWidth / 2, y: innerHeight * .42, in: true }; updateHover(); return true; },
+    /** Enter without a pointer: place the current tool's preview at the middle of the view. */
+    placeAtCenter() { if (!this.aimCenter() || drawMode()) return false; this.click(mouse.x, mouse.y, false, false); return true; },
     /** Places a saved villa ({ id, version? }); `rotation` starts the preview turned (duplicating a placed one). */
     placeVilla(ref, rotation = 0) {
       const v = getVilla(snap().state, ref); if (!v) return false;

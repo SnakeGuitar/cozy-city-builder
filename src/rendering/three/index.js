@@ -22,8 +22,11 @@ import { planViewUpdates } from '../../presentation/viewUpdates.js';
 export { renderThumbnails, createBlueprintThumbnails } from './thumbnails.js';
 export { createEditorView } from './editorView.js';
 
-/** `time(name, fn)` measures named pieces of work (rebuilds) for the performance overlay; optional. */
-export function createThreeView(container, { time = (name, fn) => fn() } = {}) {
+/**
+ * `time(name, fn)` measures named pieces of work (rebuilds) for the performance overlay; optional.
+ * `reducedMotion`: buildings appear, go and change tier without animation, and previews do not bob.
+ */
+export function createThreeView(container, { time = (name, fn) => fn(), reducedMotion = false } = {}) {
   const sc = createScene(container);
   const rig = createCameraRig();
   let current = null; // the state last drawn: terrain heights come from it
@@ -36,7 +39,7 @@ export function createThreeView(container, { time = (name, fn) => fn() } = {}) {
   const modelOf = b => { const bp = b.blueprint && current && getBlueprint(current, b.blueprint); return bp ? blueprintProto(bp) : null; };
   const buildings = createBuildingViews(sc.scene, ambient, baseOf, modelOf);
   const roads = createRoadView(sc.scene);
-  const overlays = createOverlays(sc.scene, ground);
+  const overlays = createOverlays(sc.scene, ground, { still: reducedMotion });
   const villas = createVillaViews(sc.scene);
   let night = 0;
 
@@ -63,11 +66,11 @@ export function createThreeView(container, { time = (name, fn) => fn() } = {}) {
       current = state;
       const plan = planViewUpdates(events, state);
       for (let i = 0; i < plan.confetti; i++) ambient.confetti();
-      if (plan.rebuild) { this.rebuild(state, { animate: true }); return; }
+      if (plan.rebuild) { this.rebuild(state, { animate: !reducedMotion }); return; }
       for (const { op, id, animate } of plan.ops) {
         const b = state.buildings[id];
-        if (op === 'add') buildings.add(b); else if (op === 'remove') buildings.remove(id, true);
-        else if (op === 'replace') buildings.replace(b, { animate }); else if (op === 'upgrade') buildings.upgrade(b);
+        if (op === 'add') buildings.add(b, { animate: !reducedMotion }); else if (op === 'remove') buildings.remove(id, !reducedMotion);
+        else if (op === 'replace') buildings.replace(b, { animate: animate && !reducedMotion }); else if (op === 'upgrade') { if (reducedMotion) buildings.replace(b, { animate: false }); else buildings.upgrade(b); }
       }
       if (plan.clearRoadHighlight) overlays.roadHighlight(null, null);
       if (plan.roads) time('rebuild.roads', () => roads.rebuild(state, ground));
