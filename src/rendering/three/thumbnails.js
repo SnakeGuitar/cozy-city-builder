@@ -1,8 +1,8 @@
 // Catalogue thumbnails rendered once from the same procedural models.
 import * as THREE from 'three';
-import { DEFS } from '../../core/config/catalog.js';
-import { C, M, Kit, bake } from './art.js';
+import { DEFS, isRoadType } from '../../core/config/catalog.js';
 import { getProto } from './models/index.js';
+import { roadPreview } from './roads.js';
 
 export function renderThumbnails(size = 168) {
   const out = {};
@@ -11,8 +11,7 @@ export function renderThumbnails(size = 168) {
   const c = new THREE.OrthographicCamera(-1, 1, 1, -1, -50, 50);
   for (const k of Object.keys(DEFS)) {
     let o;
-    if (k === 'road') { const kt = Kit(3); for (const z of [-.5, .5]) { kt.box(null, 1, .035, 1, M.cobble(), 0, 0, z); kt.box(null, .07, .05, 1, M.paint(C.stone), .465, 0, z); kt.box(null, .07, .05, 1, M.paint(C.stone), -.465, 0, z); } o = bake(kt); }
-    else o = getProto(k, 0).clone();
+    o = isRoadType(k) ? roadPreview(k) : getProto(k, 0).clone();
     sc.add(o);
     const box = new THREE.Box3().setFromObject(o), sz = box.getSize(new THREE.Vector3()), ctr = box.getCenter(new THREE.Vector3());
     const d = 10; c.position.set(ctr.x + Math.sin(Math.PI / 4) * Math.cos(.62) * d, ctr.y + Math.sin(.62) * d, ctr.z + Math.cos(Math.PI / 4) * Math.cos(.62) * d); c.lookAt(ctr);

@@ -1,6 +1,6 @@
 // Building views: Map<BuildingId, view>. Simulation records never hold Three.js objects; this module does.
 import * as THREE from 'three';
-import { DEFS } from '../../core/config/catalog.js';
+import { DEFS, isRoadType } from '../../core/config/catalog.js';
 import { T, edgeMat, selEdgeMat } from './art.js';
 import { getProto, variantOf } from './models/index.js';
 import { buildingCenter } from './coords.js';
@@ -39,7 +39,7 @@ export function createBuildingViews(scene, ambient) {
     /** Rebuild every view from state (new game, load). */
     rebuildAll(state, { animate = false } = {}) {
       for (const id of [...views.keys()]) drop(id, false);
-      for (const b of Object.values(state.buildings)) if (b.type !== 'road') { const v = build(b); if (animate) anims.push({ group: v.group, t: -Math.random() * .6, kind: 'in' }); }
+      for (const b of Object.values(state.buildings)) if (!isRoadType(b.type)) { const v = build(b); if (animate) anims.push({ group: v.group, t: -Math.random() * .6, kind: 'in' }); }
     },
     add(b, { animate = true } = {}) { const v = build(b); if (animate) { anims.push({ group: v.group, t: 0, kind: 'in' }); ambient.dust(v.group.position, DEFS[b.type].s); } },
     remove: drop,

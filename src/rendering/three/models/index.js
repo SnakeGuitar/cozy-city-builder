@@ -5,10 +5,14 @@ import { hashString } from '../../../core/util/random.js';
 import { TOWN_MODELS } from './town.js';
 import { HOUSE_MODELS } from './houses.js';
 import { CITY_MODELS } from './city.js';
+import { URBAN_MODELS } from './urban.js';
+import { TRADE_MODELS } from './trade.js';
 
-export const MODELS = { ...TOWN_MODELS, ...HOUSE_MODELS, ...CITY_MODELS };
+export const MODELS = { ...TOWN_MODELS, ...HOUSE_MODELS, ...CITY_MODELS, ...URBAN_MODELS, ...TRADE_MODELS };
 /** How many visual variants a type has; a building's persisted seed picks one. Purely visual. */
-export const VARIANTS = { fr_trad: 3, fr_cont: 2, jp_trad: 2, jp_cont: 2, us_trad: 3, us_cont: 2, mx_trad: 3, mx_cont: 2, tree: 3, flowerbed: 3, bench: 2 };
+export const VARIANTS = { fr_trad: 3, fr_cont: 2, jp_trad: 2, jp_cont: 2, us_trad: 3, us_cont: 2, mx_trad: 3, mx_cont: 2, tree: 3, flowerbed: 3, bench: 2,
+  cottage: 5, row_house: 6, walkup: 3, apartments: 3, courtyard: 3, corner_store: 3, tea_house: 3, bookshop: 3, craft_shop: 3, restaurant: 3, covered_market: 3,
+  textile: 3, sawmill: 3, pottery: 3, warehouse: 3, food_plant: 3, studio: 3 };
 export const variantOf = (type, seed) => VARIANTS[type] ? seed % VARIANTS[type] : 0;
 
 const protoCache = new Map();

@@ -1,6 +1,6 @@
 // Player commands. Every rule about what the player may do (unlocks, money, space, the café) lives here.
 // executeCommand mutates only the state it is given and returns { ok, reason?, events }.
-import { DEFS, ECON, LANDMARK } from '../config/catalog.js';
+import { DEFS, ECON, LANDMARK, isRoadType } from '../config/catalog.js';
 import { SPEEDS } from '../config/world.js';
 import { rulesFor } from '../config/rules.js';
 import { autoFace, canPlace, insertBuilding, occupy, release, removeBuilding } from '../domain/grid.js';
@@ -20,7 +20,7 @@ export const refundFor = (state, type) => rulesFor(state).refundsEnabled ? refun
 export const canAfford = (state, type) => rulesFor(state).unlimitedMoney || state.coins >= costFor(state, type);
 
 function chooseRotation(state, type, x, y, cmd, fallback) {
-  if (type === 'road') return 0;
+  if (isRoadType(type)) return 0;
   const r = Number.isInteger(cmd.r) ? ((cmd.r % 4) + 4) % 4 : fallback;
   return cmd.autoFace === false ? r : autoFace(state, type, x, y, r);
 }

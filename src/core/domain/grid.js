@@ -1,6 +1,6 @@
 // Tiles, footprints and placement rules. All functions are pure except occupy/release/insertBuilding/removeBuilding,
 // which only touch the state passed in.
-import { DEFS } from '../config/catalog.js';
+import { DEFS, isRoadType } from '../config/catalog.js';
 import { GRID_SIZE } from '../config/world.js';
 import { createBuilding } from './state.js';
 
@@ -22,7 +22,7 @@ export function canPlace(state, type, x, y, ignoreId = 0) {
 export function occupy(state, b) { for (const [x, y] of footprint(b.type, b.x, b.y)) state.grid[tileIndex(x, y)] = b.id; }
 export function release(state, b) { for (const [x, y] of footprint(b.type, b.x, b.y)) if (state.grid[tileIndex(x, y)] === b.id) state.grid[tileIndex(x, y)] = 0; }
 export function buildingAt(state, x, y) { if (!inside(x, y)) return null; const id = state.grid[tileIndex(x, y)]; return id ? state.buildings[id] || null : null; }
-export const isRoadAt = (state, x, y) => buildingAt(state, x, y)?.type === 'road';
+export const isRoadAt = (state, x, y) => isRoadType(buildingAt(state, x, y)?.type);
 
 /** Chebyshev tile distance between the nearest tiles of two footprints: 0 overlapping, 1 edge-adjacent. Effect and service radii use it. */
 export function rectDist(a, b) {

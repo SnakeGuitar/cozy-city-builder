@@ -79,6 +79,41 @@ export const T = {
       for (const ox of [-w, 0, w]) { x.fillStyle = tone('#e6dcc4', (r() - .5) * .2); x.beginPath(); x.ellipse(cx + ox, cy, rx, ry, r() * .5, 0, 6.3); x.fill(); x.strokeStyle = tone(C.ink, 0, .28); x.lineWidth = 1.4; x.stroke(); }
     }
   }),
+  // street surfaces (one per road look), painted to tile seamlessly along the road
+  dirt: () => mkTex('dirt', 256, 256, (x, w, h, r) => {
+    wash(x, w, h, r, '#c9a77a', 1.2, false);
+    for (let i = 0; i < 420; i++) { x.fillStyle = tone(r() < .5 ? '#8b6a48' : '#efd9b4', 0, .35 + r() * .3); x.beginPath(); x.ellipse(r() * w, r() * h, 1 + r() * 2.6, .8 + r() * 1.8, r() * 3, 0, 6.3); x.fill(); }
+    x.strokeStyle = tone('#7a5a3c', 0, .18); x.lineWidth = 7; for (const cx of [w * .3, w * .7]) { x.beginPath(); for (let y = -8; y <= h + 8; y += 16) x.lineTo(cx + Math.sin(y * .05) * 4, y); x.stroke(); }
+  }),
+  setts: () => mkTex('setts', 256, 256, (x, w, h, r) => {
+    wash(x, w, h, r, '#a8957a', 1, false);
+    const n = 9, cs = w / n;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const cx = (i + .5) * cs + (r() - .5) * 8, cy = (j + .5) * cs + (r() - .5) * 8, rx = cs * (.32 + r() * .14), ry = cs * (.28 + r() * .14);
+      for (const ox of [-w, 0, w]) { x.fillStyle = tone(['#d8cdb6', '#cbbfa5', '#e2d6bd', '#bfb39a'][(i * 7 + j * 3) % 4], (r() - .5) * .2); x.beginPath(); x.ellipse(cx + ox, cy, rx, ry, r() * 3, 0, 6.3); x.fill(); x.strokeStyle = tone(C.ink, 0, .32); x.lineWidth = 1.3; x.stroke(); }
+    }
+    for (let i = 0; i < 70; i++) { x.fillStyle = tone(C.leafD, 0, .35); x.fillRect(r() * w, r() * h, 2, 2); }
+  }),
+  tarmac: hex => mkTex('tm' + hex, 256, 256, (x, w, h, r) => {
+    wash(x, w, h, r, hex, .7, false);
+    for (let i = 0; i < 2600; i++) { x.fillStyle = tone(hex, r() < .5 ? -.35 : .35, .22); x.fillRect(r() * w, r() * h, 1.4, 1.4); }
+    for (let i = 0; i < 5; i++) { x.strokeStyle = tone(C.ink, 0, .12); x.lineWidth = 1; x.beginPath(); let px = r() * w, py = r() * h; x.moveTo(px, py); for (let j = 0; j < 4; j++) { px += (r() - .5) * 40; py += (r() - .5) * 40; x.lineTo(px, py); } x.stroke(); }
+  }),
+  pavers: () => mkTex('pavers', 256, 256, (x, w, h, r) => {
+    wash(x, w, h, r, '#b9775c', 1, false);
+    const bw = 32, bh = 16;
+    for (let y = 0; y < h; y += bh) for (let i = -1; i < w / bw + 1; i++) { const ox = i * bw + ((y / bh) % 2) * bw / 2;
+      x.fillStyle = tone(['#c98a6c', '#d29a78', '#b9775c', '#dcae8c'][Math.floor(r() * 4)], (r() - .5) * .15); x.fillRect(ox + 1, y + 1, bw - 2, bh - 2); x.strokeStyle = tone(C.ink, 0, .3); x.lineWidth = 1.2; x.strokeRect(ox + 1, y + 1, bw - 2, bh - 2); }
+  }),
+  flagstone: () => mkTex('flagstone', 256, 256, (x, w, h, r) => {
+    wash(x, w, h, r, '#8f9a7c', 1.2, false); // moss in the joints
+    for (let row = 0, y = 4; row < 5; row++) { const rh = 44 + r() * 10; let xx = 4;
+      while (xx < w - 4) { const cw = 40 + r() * 46, ww = Math.min(cw, w - 4 - xx);
+        x.fillStyle = tone(['#d3cfc2', '#c4c1b5', '#dad4c5', '#bcb8ab'][Math.floor(r() * 4)], (r() - .5) * .12); x.beginPath(); x.roundRect(xx, y, ww - 5, rh - 5, 6); x.fill(); x.strokeStyle = tone(C.ink, 0, .3); x.lineWidth = 1.3; x.stroke(); xx += cw; }
+      y += rh; }
+  }),
+  gravel: () => mkTex('gravel', 128, 128, (x, w, h, r) => { wash(x, w, h, r, '#e6dfcf', .6, false); for (let i = 0; i < 1300; i++) { x.fillStyle = tone(r() < .5 ? '#9c9284' : '#fffaf0', 0, .45); x.beginPath(); x.arc(r() * w, r() * h, .6 + r() * 1.3, 0, 6.3); x.fill(); }
+    x.strokeStyle = tone('#a09583', 0, .3); x.lineWidth = 1; for (let y = 6; y < h; y += 9) { x.beginPath(); for (let i = 0; i <= w; i += 8) x.lineTo(i, y + Math.sin(i * .1) * 1.2); x.stroke(); } }),
   grass: () => mkTex('grass', 256, 256, (x, w, h, r) => { wash(x, w, h, r, '#a9bf8f', 1.3, false); for (let i = 0; i < 260; i++) { const sx = r() * w, sy = r() * h; x.strokeStyle = tone(r() < .5 ? C.leafD : C.leafL, 0, .35); x.lineWidth = 1.2; x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx + r() * 4 - 2, sy - 4 - r() * 4); x.stroke(); } }),
   soil: () => mkTex('soil', 128, 128, (x, w, h, r) => { wash(x, w, h, r, C.soil, 1.2); x.strokeStyle = tone(C.ink, 0, .35); for (let y = 10; y < h; y += 18) { x.beginPath(); x.moveTo(0, y); for (let i = 0; i <= w; i += 16) x.lineTo(i, y + Math.sin(i * .2 + y) * 2); x.stroke(); } }),
   glass: () => mkTex('glass', 64, 64, (x, w, h, r) => { const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#d3e4df'); g.addColorStop(1, '#8fb1ac'); x.fillStyle = g; x.fillRect(0, 0, w, h);
@@ -120,6 +155,13 @@ function drawIcon(x, icon) {
   else if (icon === 'recycle') { x.strokeStyle = C.limeD; x.lineWidth = 5; for (let i = 0; i < 3; i++) { const a = i / 3 * 6.28; x.beginPath(); x.arc(0, 0, 15, a + .3, a + 1.8); x.stroke(); } }
   else if (icon === 'saw') { x.fillStyle = C.wood; x.fillRect(-24, -6, 30, 12); x.strokeRect(-24, -6, 30, 12); x.fillStyle = C.zinc; x.beginPath(); x.moveTo(6, -8); x.lineTo(24, -4); x.lineTo(24, 8); x.lineTo(6, 8); x.closePath(); x.fill(); x.stroke(); }
   else if (icon === 'box') { x.fillStyle = C.wood; x.fillRect(-18, -14, 36, 28); x.strokeRect(-18, -14, 36, 28); x.beginPath(); x.moveTo(-18, -14); x.lineTo(18, 14); x.moveTo(18, -14); x.lineTo(-18, 14); x.stroke(); }
+  else if (icon === 'teapot') { x.fillStyle = C.teal; x.beginPath(); x.ellipse(0, 4, 18, 13, 0, 0, 6.3); x.fill(); x.stroke(); x.fillStyle = C.ivory; x.beginPath(); x.ellipse(0, -9, 8, 3, 0, 0, 6.3); x.fill(); x.stroke(); x.beginPath(); x.arc(0, -13, 3, 0, 6.3); x.fill(); x.stroke();
+    x.beginPath(); x.moveTo(16, 0); x.quadraticCurveTo(26, -2, 26, -12); x.stroke(); x.beginPath(); x.arc(-19, 3, 7, 1.6, 4.7); x.stroke(); x.strokeStyle = C.ivory; x.beginPath(); x.moveTo(-10, 6); x.quadraticCurveTo(0, 12, 10, 6); x.stroke(); }
+  else if (icon === 'vase') { x.fillStyle = C.terra; x.beginPath(); x.moveTo(-7, -20); x.lineTo(7, -20); x.quadraticCurveTo(4, -10, 14, 2); x.quadraticCurveTo(16, 18, 0, 20); x.quadraticCurveTo(-16, 18, -14, 2); x.quadraticCurveTo(-4, -10, -7, -20); x.fill(); x.stroke(); x.strokeStyle = C.ivory; x.lineWidth = 2.5; x.beginPath(); x.moveTo(-12, 6); x.quadraticCurveTo(0, 0, 12, 6); x.stroke(); }
+  else if (icon === 'fork') { x.fillStyle = C.ivory; x.beginPath(); x.arc(0, 0, 18, 0, 6.3); x.fill(); x.stroke(); x.fillStyle = C.zinc; x.fillRect(-26, -16, 4, 32); x.strokeRect(-26, -16, 4, 32); for (const dx of [-30, -27, -24, -21]) { x.fillRect(dx + 3, -20, 1.5, 8); } x.beginPath(); x.ellipse(25, -6, 4, 9, 0, 0, 6.3); x.fill(); x.stroke(); x.fillRect(23, 2, 4, 14); x.strokeRect(23, 2, 4, 14); }
+  else if (icon === 'spool') { x.fillStyle = C.wood; x.fillRect(-14, -18, 28, 6); x.fillRect(-14, 12, 28, 6); x.strokeRect(-14, -18, 28, 6); x.strokeRect(-14, 12, 28, 6); x.fillStyle = C.magenta; x.fillRect(-10, -12, 20, 24); x.strokeRect(-10, -12, 20, 24); x.strokeStyle = tone(C.ivory, 0, .7); for (let y = -9; y < 12; y += 4) { x.beginPath(); x.moveTo(-10, y); x.lineTo(10, y + 2); x.stroke(); } x.strokeStyle = C.magenta; x.beginPath(); x.moveTo(10, 4); x.quadraticCurveTo(24, 8, 22, 20); x.stroke(); }
+  else if (icon === 'log') { x.fillStyle = C.wood; x.fillRect(-20, -10, 30, 20); x.strokeRect(-20, -10, 30, 20); x.fillStyle = C.peach; x.beginPath(); x.ellipse(12, 0, 8, 10, 0, 0, 6.3); x.fill(); x.stroke(); x.strokeStyle = C.woodD; for (const rr of [3, 6]) { x.beginPath(); x.ellipse(12, 0, rr * .8, rr, 0, 0, 6.3); x.stroke(); } }
+  else if (icon === 'chip') { x.fillStyle = C.lime; x.beginPath(); x.roundRect(-14, -14, 28, 28, 4); x.fill(); x.stroke(); x.fillStyle = C.ivory; x.fillRect(-6, -6, 12, 12); x.strokeRect(-6, -6, 12, 12); for (const k of [-8, 0, 8]) { x.beginPath(); x.moveTo(k, -14); x.lineTo(k, -20); x.moveTo(k, 14); x.lineTo(k, 20); x.moveTo(-14, k); x.lineTo(-20, k); x.moveTo(14, k); x.lineTo(20, k); x.stroke(); } }
   else if (icon === 'basket') { x.fillStyle = C.wood; x.beginPath(); x.moveTo(-20, -2); x.lineTo(20, -2); x.lineTo(14, 18); x.lineTo(-14, 18); x.closePath(); x.fill(); x.stroke(); for (const [a, c] of [[-10, C.lemon], [0, C.lime], [10, C.orange]]) { x.fillStyle = c; x.beginPath(); x.arc(a, -6, 7, 0, 6.3); x.fill(); x.stroke(); } }
 }
 
@@ -149,6 +191,12 @@ export const M = {
   garage: hex => lam('gr' + hex, () => new THREE.MeshLambertMaterial({ map: T.garage(hex) })),
   corrug: hex => lam('cg' + hex, () => new THREE.MeshLambertMaterial({ map: T.corrug(hex) })),
   stone: hex => lam('st' + hex, () => new THREE.MeshLambertMaterial({ map: T.stone(hex) })),
+  dirt: () => lam('dirt', () => new THREE.MeshLambertMaterial({ map: T.dirt() })),
+  setts: () => lam('setts', () => new THREE.MeshLambertMaterial({ map: T.setts() })),
+  tarmac: hex => lam('tm' + hex, () => new THREE.MeshLambertMaterial({ map: T.tarmac(hex) })),
+  pavers: () => lam('pavers', () => new THREE.MeshLambertMaterial({ map: T.pavers() })),
+  flagstone: () => lam('flagstone', () => new THREE.MeshLambertMaterial({ map: T.flagstone() })),
+  gravel: () => lam('gravel', () => new THREE.MeshLambertMaterial({ map: T.gravel() })),
   gingham: () => lam('gingham', () => new THREE.MeshLambertMaterial({ map: T.gingham() })),
 };
 export const windowMat = new THREE.MeshLambertMaterial({ map: T.glass(), emissive: new THREE.Color('#ffb45a'), emissiveIntensity: 0 });

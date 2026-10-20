@@ -6,7 +6,7 @@
 // applyTick(state, derived) commits one simulated second (employment, demand, population, money,
 //   shop doors and wellbeing memory). commitMemory(state, derived) commits only the lagged memory
 //   after a player command, exactly as the town settles between ticks.
-import { DEFS, LANDMARK } from '../config/catalog.js';
+import { DEFS, LANDMARK, isRoadType } from '../config/catalog.js';
 import { rulesFor } from '../config/rules.js';
 import { listBuildings } from '../domain/state.js';
 import { computeRoadNetwork } from './roads.js';
@@ -22,7 +22,7 @@ import { computeFinance } from './finance.js';
 import { computeDemand } from './demand.js';
 
 export function computeDerived(state, { mode = 'snapshot' } = {}) {
-  const things = listBuildings(state).filter(b => b.type !== 'road');
+  const things = listBuildings(state).filter(b => !isRoadType(b.type));
   const kind = b => DEFS[b.type].kind;
   const rules = rulesFor(state);
   const broke = !rules.unlimitedMoney && state.coins <= 0;

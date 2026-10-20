@@ -1,6 +1,6 @@
 // The Three.js view: a facade over scene, camera rig, building views, roads, ambient life and overlays.
 // It reacts to core events and snapshots and draws the camera state it is given; it never changes game state.
-import { DEFS } from '../../core/config/catalog.js';
+import { DEFS, isRoadType } from '../../core/config/catalog.js';
 import { GRID_SIZE } from '../../core/config/world.js';
 import { windowMat, lampMat } from './art.js';
 import { createScene, applyDayLight } from './scene.js';
@@ -33,8 +33,8 @@ export function createThreeView(container) {
     applyEvents(events, state) {
       let roadsDirty = false, gridDirty = false;
       for (const e of events) {
-        if (e.type === 'building_placed') { gridDirty = true; if (e.buildingType === 'road') roadsDirty = true; else buildings.add(state.buildings[e.id]); }
-        else if (e.type === 'building_removed') { gridDirty = true; if (e.buildingType === 'road') roadsDirty = true; else buildings.remove(e.id, true); }
+        if (e.type === 'building_placed') { gridDirty = true; if (isRoadType(e.buildingType)) roadsDirty = true; else buildings.add(state.buildings[e.id]); }
+        else if (e.type === 'building_removed') { gridDirty = true; if (isRoadType(e.buildingType)) roadsDirty = true; else buildings.remove(e.id, true); }
         else if (e.type === 'building_moved' || e.type === 'building_rotated') { gridDirty = true; const b = state.buildings[e.id]; if (b) buildings.replace(b, { animate: e.type === 'building_moved' }); }
         else if (e.type === 'goal_completed') ambient.confetti();
         else if (e.type === 'state_replaced') this.rebuild(state, { animate: true });

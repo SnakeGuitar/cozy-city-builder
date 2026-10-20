@@ -1,9 +1,10 @@
 // Build-mode helpers drawn in the world: grid, occupied tiles, footprint, effect range, ghost preview, relation lines.
 import * as THREE from 'three';
 import { GRID_SIZE } from '../../core/config/world.js';
-import { DEFS } from '../../core/config/catalog.js';
+import { DEFS, isRoadType } from '../../core/config/catalog.js';
 import { M, T } from './art.js';
 import { getProto } from './models/index.js';
+import { roadPreview } from './roads.js';
 import { HALF, tileCenter } from './coords.js';
 
 const N = GRID_SIZE;
@@ -23,7 +24,7 @@ export function createOverlays(scene) {
   const relations = new THREE.Group(); scene.add(relations);
 
   function ghostOf(type, variant) {
-    const o = type === 'road' ? new THREE.Mesh(new THREE.BoxGeometry(1, .035, 1).translate(0, .02, 0), M.cobble()) : getProto(type, variant).clone();
+    const o = isRoadType(type) ? roadPreview(type, 1) : getProto(type, variant).clone();
     o.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .62; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); c.castShadow = false; } if (c.isLineSegments) c.material = ghostEdge; });
     return o;
   }
