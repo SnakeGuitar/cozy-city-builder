@@ -44,8 +44,8 @@ export function autoFace(state, type, x, y, fallback = 0) {
 }
 
 /** Adds a building record and claims its tiles. Caller validates with canPlace first. */
-export function insertBuilding(state, type, x, y, r, seed, id = state.nextId) {
-  const b = createBuilding(id, type, x, y, r, seed);
+export function insertBuilding(state, type, x, y, r, seed, id = state.nextId, tier = 1) {
+  const b = createBuilding(id, type, x, y, r, seed, tier);
   state.buildings[id] = b; if (id >= state.nextId) state.nextId = id + 1;
   occupy(state, b); return b;
 }

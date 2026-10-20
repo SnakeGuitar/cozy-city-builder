@@ -47,7 +47,7 @@ export function computeDerived(state, { mode = 'snapshot' } = {}) {
   const byId = {};
   for (const b of things) {
     const k = kind(b), e = effects[b.id];
-    const rec = { id: b.id, type: b.type, kind: k, conn: connected[b.id], src: e.src, wellB: e.wellB, mult: e.mult, staff: work.staff[b.id] };
+    const rec = { id: b.id, type: b.type, tier: b.tier || 1, kind: k, conn: connected[b.id], src: e.src, wellB: e.wellB, mult: e.mult, staff: work.staff[b.id] };
     if (k === 'house') Object.assign(rec, { occ: housing.occupancy[b.id], cap: housing.capacityById[b.id], well: wellbeing.byId[b.id].well, groups: wellbeing.byId[b.id].groups, svc: services.coverage[b.id] });
     if (k === 'shop') Object.assign(rec, { open: commerce.open[b.id], cust: commerce.customers[b.id], inc: finance.income[b.id] });
     if (k === 'industry') Object.assign(rec, { prod: industry.production[b.id], inc: finance.income[b.id] });

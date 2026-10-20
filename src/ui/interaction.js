@@ -3,11 +3,12 @@
 import { DEFS, isRoadType } from '../core/config/catalog.js';
 import { canPlace, autoFace } from '../core/domain/grid.js';
 import { CMD, peekSeed, refundFor, costFor, canAfford } from '../core/commands/commands.js';
+import { LANDMARK } from '../core/config/catalog.js';
 import { $ } from './dom/dom.js';
 import { t } from './dom/i18n.js';
 
 export function createInteraction({ game, view, onChange }) {
-  let tool = { kind: 'select' }, selected = 0, hover = null, mouse = { x: 0, y: 0, in: false }, confirmDemo = false, time = 0;
+  let tool = { kind: 'select' }, selected = 0, hover = null, mouse = { x: 0, y: 0, in: false }, confirmDemo = false, upgradeOpen = false, time = 0;
   const tip = $('tip');
   const snap = () => game.getSnapshot();
   const building = () => tool.kind === 'build' || tool.kind === 'move';
@@ -22,7 +23,7 @@ export function createInteraction({ game, view, onChange }) {
     updateHover(); onChange('tool');
   }
   function select(id) {
-    selected = id || 0; confirmDemo = false; view.selectBuilding(selected);
+    selected = id || 0; confirmDemo = false; upgradeOpen = false; view.selectBuilding(selected);
     const b = selected && snap().state.buildings[selected];
     if (b) view.overlays.range(b.type, b.x, b.y); else view.overlays.hideRange();
     onChange('selection');
@@ -57,14 +58,18 @@ export function createInteraction({ game, view, onChange }) {
     } else if (tool.kind === 'demolish') {
       const id = view.pickBuilding(mouse.x, mouse.y, state), b = id && state.buildings[id];
       tip.hidden = false;
-      if (b) { view.overlays.footprint(b.x, b.y, DEFS[b.type].s, false); tip.innerHTML = b.type === 'cafe' ? `<span class="bad">${t('cafeHeart')}</span>` : `${t('demolish')}: ${t('n_' + b.type)}${refundFor(state, b.type) ? ` · +${refundFor(state, b.type)}` : ''}`; }
+      if (b) { view.overlays.footprint(b.x, b.y, DEFS[b.type].s, false); tip.innerHTML = b.type === LANDMARK ? `<span class="bad">${t('cafeHeart')}</span>` : `${t('demolish')}: ${t('n_' + b.type)}${refundFor(state, b) ? ` · +${refundFor(state, b)}` : ''}`; }
       else tip.innerHTML = t('demolishMode');
     }
     if (!tip.hidden) { const tx = Math.min(mouse.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${mouse.y + 18}px)`; }
   }
 
   return {
-    get tool() { return tool; }, get selected() { return selected; }, get confirmDemo() { return confirmDemo; },
+    get tool() { return tool; }, get selected() { return selected; }, get confirmDemo() { return confirmDemo; }, get upgradeOpen() { return upgradeOpen; },
+    /** Opens or closes the upgrade preview of the selected building. */
+    toggleUpgrade(open = !upgradeOpen) { upgradeOpen = !!selected && open; confirmDemo = false; onChange('selection'); },
+    /** Confirms the previewed upgrade. The core validates it (money, tier) and answers with an event. */
+    confirmUpgrade() { if (!selected) return false; const res = game.dispatch({ type: CMD.Upgrade, id: selected }); if (res.ok) { upgradeOpen = false; onChange('selection'); } return res.ok; },
     setTool, select, updateHover,
     frame(dt) { time += dt; if (building()) updateHover(); if (selected && !snap().state.buildings[selected]) select(0); },
     pointerMove(x, y) { mouse = { x, y, in: true }; updateHover(); },

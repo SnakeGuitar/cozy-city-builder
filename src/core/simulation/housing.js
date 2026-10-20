@@ -1,7 +1,7 @@
 // Residents move into the nicest connected homes first (by last tick's wellbeing, then id).
-import { DEFS } from '../config/catalog.js';
+import { statsOf } from '../domain/state.js';
 
-export const homeCapacity = h => Math.round(DEFS[h.type].cap * (h.well >= 75 ? 1.15 : 1));
+export const homeCapacity = h => Math.round(statsOf(h).cap * (h.well >= 75 ? 1.15 : 1));
 
 export function allocateHousing(houses, connected, population) {
   const linked = houses.filter(h => connected[h.id]);

@@ -1,11 +1,12 @@
 // Water, power and waste: one town-wide capacity per utility, no pipes or cables.
 import { BASE_SUPPLY, DEFS, USE, UTILS } from '../config/catalog.js';
+import { statsOf } from '../domain/state.js';
 import { efficiency } from './employment.js';
 
 export function computeUtilities(things, connected, occupancy, staff, broke) {
   const byUtil = {}, ratio = {}; let min = 1;
   for (const u of UTILS) {
-    const supply = BASE_SUPPLY[u] + things.filter(b => DEFS[b.type].util === u && connected[b.id]).reduce((s, b) => s + DEFS[b.type].cap * efficiency(staff[b.id], broke), 0);
+    const supply = BASE_SUPPLY[u] + things.filter(b => DEFS[b.type].util === u && connected[b.id]).reduce((s, b) => s + statsOf(b).cap * efficiency(staff[b.id], broke), 0);
     let use = 0;
     for (const b of things) {
       const k = DEFS[b.type].kind;

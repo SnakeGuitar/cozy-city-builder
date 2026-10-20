@@ -1,23 +1,46 @@
 // Player commands. Every rule about what the player may do (unlocks, money, space, the café) lives here.
 // executeCommand mutates only the state it is given and returns { ok, reason?, events }.
-import { DEFS, ECON, LANDMARK, isRoadType } from '../config/catalog.js';
+import { DEFS, ECON, LANDMARK, isRoadType, tierOf, tierStats, maxTierOf, investedIn, TIER_STATS } from '../config/catalog.js';
 import { SPEEDS } from '../config/world.js';
 import { rulesFor } from '../config/rules.js';
 import { autoFace, canPlace, insertBuilding, occupy, release, removeBuilding } from '../domain/grid.js';
 import { unlockedTypes } from '../goals/goals.js';
 import { nextRandom } from '../util/random.js';
 
-export const CMD = Object.freeze({ Place: 'PlaceBuilding', Move: 'MoveBuilding', Rotate: 'RotateBuilding', Demolish: 'DemolishBuilding', SetSpeed: 'SetSpeed', TogglePause: 'TogglePause', TutorialSignal: 'TutorialSignal' });
+export const CMD = Object.freeze({ Place: 'PlaceBuilding', Move: 'MoveBuilding', Rotate: 'RotateBuilding', Demolish: 'DemolishBuilding', Upgrade: 'UpgradeBuilding', SetSpeed: 'SetSpeed', TogglePause: 'TogglePause', TutorialSignal: 'TutorialSignal' });
 /** Commands that change the map (the application recomputes the town after them). */
-export const STRUCTURAL = new Set([CMD.Place, CMD.Move, CMD.Rotate, CMD.Demolish]);
+export const STRUCTURAL = new Set([CMD.Place, CMD.Move, CMD.Rotate, CMD.Demolish, CMD.Upgrade]);
 
 const reject = (cmd, reason) => ({ ok: false, reason, events: [{ type: 'command_rejected', command: cmd.type, reason }] });
 const coinsEvent = (state, delta) => ({ type: 'coins_changed', coins: state.coins, delta });
-export const refundOf = type => Math.floor(DEFS[type].cost * ECON.refundRate);
-/** What a building costs / returns under the state's rules (sandbox: nothing). */
+/** Coins returned for demolishing a building of `type` at `tier` (half of its price and of the upgrades paid for). */
+export const refundOf = (type, tier = 1) => Math.floor(investedIn(type, tier) * ECON.refundRate);
+/** What a building costs / returns under the state's rules (sandbox: nothing). `b` is a type id or a building record. */
 export const costFor = (state, type) => rulesFor(state).buildCostsEnabled ? DEFS[type].cost : 0;
-export const refundFor = (state, type) => rulesFor(state).refundsEnabled ? refundOf(type) : 0;
+export const refundFor = (state, b) => rulesFor(state).refundsEnabled ? (typeof b === 'string' ? refundOf(b) : refundOf(b.type, b.tier || 1)) : 0;
 export const canAfford = (state, type) => rulesFor(state).unlimitedMoney || state.coins >= costFor(state, type);
+/** Price of taking a building from its tier to the next one under the state's rules (sandbox: free). */
+export const upgradeCostFor = (state, b) => rulesFor(state).buildCostsEnabled ? (tierOf(b.type, (b.tier || 1) + 1)?.upgradeCost ?? 0) : 0;
+
+/** Why a building cannot be upgraded now ('missing' · 'notUpgradable' · 'maxTier' · 'notEnough'), or null. The one validation used by the command and the UI. */
+export function upgradeBlocker(state, b) {
+  if (!b) return 'missing';
+  if (!DEFS[b.type].tiers || maxTierOf(b.type) < 2) return 'notUpgradable';
+  if ((b.tier || 1) >= maxTierOf(b.type)) return 'maxTier';
+  if (!rulesFor(state).unlimitedMoney && state.coins < upgradeCostFor(state, b)) return 'notEnough';
+  return null;
+}
+/**
+ * What an upgrade would change, for a confirmation preview. Pure.
+ * { reason, from, to, cost, current, next, changes: [{ stat, from, to }] } — `next`/`changes` are null at the top tier.
+ */
+export function upgradePreview(state, id) {
+  const b = state.buildings[id]; if (!b) return { reason: 'missing' };
+  const from = b.tier || 1, top = from >= maxTierOf(b.type);
+  const current = tierStats(b.type, from), next = top || !DEFS[b.type].tiers ? null : tierStats(b.type, from + 1);
+  const changes = next ? TIER_STATS.filter(k => (current[k] ?? 0) !== (next[k] ?? 0)).map(k => ({ stat: k, from: current[k] ?? 0, to: next[k] ?? 0 })) : null;
+  return { reason: upgradeBlocker(state, b), from, to: next ? from + 1 : from, max: maxTierOf(b.type), cost: next ? upgradeCostFor(state, b) : 0, current, next, changes };
+}
 
 function chooseRotation(state, type, x, y, cmd, fallback) {
   if (isRoadType(type)) return 0;
@@ -57,10 +80,19 @@ const handlers = {
     b.r = (b.r + 1) % 4;
     return { ok: true, id: b.id, events: [{ type: 'building_rotated', id: b.id, r: b.r }] };
   },
+  /** Raises a building one tier. Keeps its id, position, rotation, seed and memory; only the tier changes. */
+  [CMD.Upgrade](state, cmd) {
+    const b = state.buildings[cmd.id], why = upgradeBlocker(state, b); if (why) return reject(cmd, why);
+    const cost = upgradeCostFor(state, b), fromTier = b.tier || 1;
+    state.coins -= cost; b.tier = fromTier + 1;
+    const events = [{ type: 'building_upgraded', id: b.id, buildingType: b.type, fromTier, toTier: b.tier, cost, model: tierOf(b.type, b.tier).model }];
+    if (cost) events.push(coinsEvent(state, -cost));
+    return { ok: true, id: b.id, events };
+  },
   [CMD.Demolish](state, cmd) {
     const b = state.buildings[cmd.id]; if (!b) return reject(cmd, 'missing');
     if (b.type === LANDMARK) return reject(cmd, 'cafeHeart');
-    const refund = refundFor(state, b.type);
+    const refund = refundFor(state, b);
     state.coins += refund; removeBuilding(state, b);
     const events = [{ type: 'building_removed', id: b.id, buildingType: b.type, x: b.x, y: b.y, refund }];
     if (refund) events.push(coinsEvent(state, refund));

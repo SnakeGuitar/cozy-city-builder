@@ -133,6 +133,18 @@ button:focus-visible{outline:2px solid var(--lime-deep);outline-offset:2px;}
 .btn.red{background:var(--warn);border-color:var(--warn);color:#fff8ef;}
 .btn.red:hover{background:#8a3f1f;}
 .btn.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn);}
+.btn.up{background:var(--lemon-soft);border-color:var(--lemon-deep);color:#6b4d0b;}
+.btn.up:hover{background:#f8e391;}
+.btn[disabled]{opacity:.45;cursor:not-allowed;}
+.tier{color:var(--lemon-deep);letter-spacing:1px;font-size:12px;}
+.upg{margin-top:10px;}
+.upg.max{font-size:12px;font-weight:800;color:var(--ink-soft);}
+.upg.open{border:1px dashed var(--lemon-deep);border-radius:12px;padding:8px 10px;background:rgba(251,239,180,.35);animation:upg-in .25s ease-out;}
+.upg.open h4{margin:0 0 6px;font-size:13px;display:flex;justify-content:space-between;align-items:center;}
+.upg em{font-style:normal;} .upg em.better{color:var(--lime-deep);} .upg em.worse{color:var(--warn);}
+.upg .bad{color:var(--warn);font-size:12px;font-weight:800;margin:6px 0 0;}
+@keyframes upg-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.upg.open{animation:none;}}
 .panel .close{position:absolute;top:8px;right:8px;width:26px;height:26px;border-radius:50%;border:0;background:transparent;font-size:16px;color:var(--ink-soft);}
 
 /* ---------- settings ---------- */
@@ -346,6 +358,7 @@ body.in-menu #stage,body.in-menu #top,body.in-menu #catalog,body.in-menu #goals,
 <div id="tip" hidden></div>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-up" viewBox="0 0 20 20"><path d="M10 3l5.5 6H12v7H8V9H4.5z" fill="#f2d03f" stroke="#8a6a12" stroke-width="1.2" stroke-linejoin="round"/></symbol>
   <symbol id="i-coin" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#f2d03f" stroke="#8a6a12" stroke-width="1"/><circle cx="10" cy="10" r="6.2" fill="#fbefb4"/><g stroke="#d9b32a" stroke-width="1.1" stroke-linecap="round"><path d="M10 10V4.4M10 10l4 -4M10 10h5.6M10 10l4 4M10 10v5.6M10 10l-4 4M10 10H4.4M10 10l-4-4"/></g><circle cx="10" cy="10" r="1" fill="#f2d03f"/></symbol>
   <symbol id="i-pop" viewBox="0 0 20 20"><circle cx="7" cy="6.5" r="2.6" fill="#f1c9a5" stroke="#5b3e2c" stroke-width="1"/><path d="M2.5 16c0-3 2-5 4.5-5s4.5 2 4.5 5z" fill="#5d8a3c" stroke="#5b3e2c" stroke-width="1"/><circle cx="13.5" cy="7" r="2.3" fill="#f1c9a5" stroke="#5b3e2c" stroke-width="1"/><path d="M9.8 16c0-2.8 1.7-4.6 3.7-4.6s3.8 1.8 3.8 4.6z" fill="#e0a948" stroke="#5b3e2c" stroke-width="1"/></symbol>
   <symbol id="i-flower" viewBox="0 0 20 20"><g fill="#fffaf0" stroke="#8a6a12" stroke-width=".8"><circle cx="10" cy="5.5" r="3"/><circle cx="14.3" cy="8.8" r="3"/><circle cx="12.6" cy="14" r="3"/><circle cx="7.4" cy="14" r="3"/><circle cx="5.7" cy="8.8" r="3"/></g><circle cx="10" cy="10" r="2.4" fill="#f2d03f" stroke="#8a6a12" stroke-width=".8"/></symbol>

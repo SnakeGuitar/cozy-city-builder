@@ -14,6 +14,7 @@ export function createAudio(muted = false) {
     tick() { note(660 + Math.random() * 80, .07, 'triangle', .04); },
     coin() { note(1318, .16, 'sine', .025); note(1760, .2, 'sine', .02, .05); },
     unlock() { [523, 659, 784, 1046].forEach((f, i) => note(f, .55, 'triangle', .08, i * .09)); },
+    upgrade() { [392, 523, 659, 784, 1046].forEach((f, i) => note(f, .5, 'triangle', .07, .5 + i * .07)); note(1568, .8, 'sine', .04, .9); [196, 247].forEach((f, i) => note(f, .12, 'square', .025, i * .18)); },
     remove() { note(220, .25, 'triangle', .1); note(165, .3, 'sine', .07, .06); },
     click() { note(990, .05, 'sine', .03); },
     chirp() {

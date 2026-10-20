@@ -36,6 +36,7 @@ export function createThreeView(container) {
         if (e.type === 'building_placed') { gridDirty = true; if (isRoadType(e.buildingType)) roadsDirty = true; else buildings.add(state.buildings[e.id]); }
         else if (e.type === 'building_removed') { gridDirty = true; if (isRoadType(e.buildingType)) roadsDirty = true; else buildings.remove(e.id, true); }
         else if (e.type === 'building_moved' || e.type === 'building_rotated') { gridDirty = true; const b = state.buildings[e.id]; if (b) buildings.replace(b, { animate: e.type === 'building_moved' }); }
+        else if (e.type === 'building_upgraded') { const b = state.buildings[e.id]; if (b) buildings.upgrade(b); }
         else if (e.type === 'goal_completed') ambient.confetti();
         else if (e.type === 'state_replaced') this.rebuild(state, { animate: true });
       }

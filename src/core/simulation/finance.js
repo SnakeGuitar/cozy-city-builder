@@ -1,5 +1,6 @@
 // Money per minute: shop sales, industry sales, resident tax, minus upkeep of every public building.
 import { DEFS, ECON } from '../config/catalog.js';
+import { statsOf } from '../domain/state.js';
 
 export function computeFinance(things, connected, effects, commerce, industry, townWell, population) {
   const goodsFactor = commerce.goodsNeed ? .75 + .25 * Math.min(1, industry.total / commerce.goodsNeed) : 1;
@@ -13,6 +14,6 @@ export function computeFinance(things, connected, effects, commerce, industry, t
   }
   const sumKind = kind => things.filter(b => DEFS[b.type].kind === kind).reduce((s, b) => s + income[b.id], 0);
   const totals = { shops: sumKind('shop'), industry: sumKind('industry'), tax: population * ECON.tax };
-  const upkeep = things.reduce((s, b) => s + (DEFS[b.type].upkeep || 0), 0);
+  const upkeep = things.reduce((s, b) => s + (statsOf(b).upkeep || 0), 0);
   return { income, totals, upkeep, net: totals.shops + totals.industry + totals.tax - upkeep };
 }

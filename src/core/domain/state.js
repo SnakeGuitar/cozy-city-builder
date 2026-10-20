@@ -3,7 +3,7 @@
 // Persistent fields are written to saves (core/persistence). Building `well` and `open` are
 // "simulation memory": lagged values the next tick depends on (housing preference, whether a
 // shop kept its doors open). Everything else the UI shows is derived (core/simulation).
-import { DEFS, LANDMARK } from '../config/catalog.js';
+import { DEFS, LANDMARK, tierStats, maxTierOf } from '../config/catalog.js';
 import { GRID_SIZE, NEW_GAME } from '../config/world.js';
 import { MODES } from '../config/rules.js';
 
@@ -20,10 +20,12 @@ export function createEmptyState(overrides = {}) {
   };
 }
 
-export function createBuilding(id, type, x, y, r, seed) {
+export function createBuilding(id, type, x, y, r, seed, tier = 1) {
   if (!DEFS[type]) throw new Error(`unknown building type: ${type}`);
-  return { id, type, x, y, r, seed, well: 50, open: true };
+  return { id, type, tier: Math.max(1, Math.min(maxTierOf(type), tier)), x, y, r, seed, well: 50, open: true };
 }
+/** A building's numbers at its tier (jobs, capacity, customers, output, upkeep, radius …). */
+export const statsOf = b => tierStats(b.type, b.tier || 1);
 
 /** Buildings in ascending id order. Every system iterates in this order, which keeps results deterministic. */
 export function listBuildings(state) { return Object.values(state.buildings).sort((a, b) => a.id - b.id); }

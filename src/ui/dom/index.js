@@ -47,7 +47,8 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
   const catalog = () => renderCatalog(snap(), slot, game.unlocked(), thumbs, activeType());
   const goals = () => renderGoals(snap(), justDone, performance.now(), rules().goalsEnabled);
   const panel = () => renderSelectionPanel(snap(), interaction.selected, interaction.confirmDemo, {
-    close: () => interaction.select(0), move: () => interaction.startMove(interaction.selected), rotate: () => interaction.rotate(), demolish: () => interaction.demolishSelected() });
+    close: () => interaction.select(0), move: () => interaction.startMove(interaction.selected), rotate: () => interaction.rotate(), demolish: () => interaction.demolishSelected(),
+    upgrade: open => { audio.click(); interaction.toggleUpgrade(open); }, confirmUpgrade: () => interaction.confirmUpgrade() }, interaction.upgradeOpen);
   function relations() {
     const s = snap(), id = interaction.selected, links = relationLinks(s, id);
     const anchor = b => view.topOf(b, DEFS[b.type].s > 1 ? -.2 : -.35);
@@ -96,6 +97,7 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
       case 'building_removed': structural = true; audio.remove(); if (e.refund) labels.floater(view.topOf({ type: e.buildingType, x: e.x, y: e.y }, -.45), `${t('refunded', { n: e.refund })} ${ico('i-coin', '')}`, '', 1.4); income.delete(e.id); break;
       case 'building_moved': structural = true; audio.place(); break;
       case 'building_rotated': structural = true; audio.click(); break;
+      case 'building_upgraded': { structural = true; audio.upgrade(); const b = state.buildings[e.id]; if (b) labels.floater(view.topOf(b, .3), `${'★'.repeat(e.toTier)} ${t('tierN', { n: e.toTier, m: DEFS[e.buildingType].tiers.length })}`, 'well', 2.2); toast(`${ico('i-up')} ${t('upgraded', { b: t('n_' + e.buildingType), n: e.toTier })}`); break; }
       case 'clock_changed': case 'day_changed': hud(); break;
       case 'income_earned': { const p = income.get(e.id) || { amount: 0, ticks: 3 + Math.random() * 4 }; p.amount += e.amount; income.set(e.id, p); break; }
       case 'population_changed': if (e.delta > 0) { const homes = Object.values(snap().derived.byId).filter(b => b.kind === 'house' && b.occ > 0); if (homes.length) labels.floater(view.topOf(state.buildings[homes[Math.floor(Math.random() * homes.length)].id]), `+1 ${ico('i-pop', '')}`, 'well', 1.4); bump('c-pop'); } break;

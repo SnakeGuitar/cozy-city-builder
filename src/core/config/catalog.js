@@ -1,4 +1,5 @@
 // Building catalogue and economic constants. Pure data: no engine, no DOM.
+import { buildTiers, MAX_TIER, TIER_STATS } from './tiers.js';
 // Type ids (the keys of DEFS) are persisted in saves. Never rename one; add a migration instead.
 //
 // kind: house · shop · industry · service (local: coverage radius + capacity) · utility (town-wide capacity) · nature · deco · road
@@ -8,7 +9,7 @@
 // cust = customers a shop can serve · goods = goods a full shop needs per min · out = goods an industry makes per min
 // fx = neighbourhood effects: k 'well' (wellbeing for homes) or 'inc' (% income), r = radius in tiles,
 //      v = value, max = how many buildings of the same type can stack on one target, t = target types
-export const DEFS = Object.freeze({
+const BASE_DEFS = {
   road:       { cat: 'paths', s: 1, cost: 5, kind: 'road', road: { width: 1, look: 'classic' } },
   road_dirt:     { cat: 'paths', s: 1, cost: 2, kind: 'road', road: { width: .8, look: 'dirt' } },
   road_cobble:   { cat: 'paths', s: 1, cost: 4, kind: 'road', road: { width: .85, look: 'cobble' } },
@@ -68,7 +69,9 @@ export const DEFS = Object.freeze({
   plaza:      { cat: 'decor', s: 2, cost: 200, kind: 'nature', fx: [{ k: 'well', r: 3, v: 12, max: 1 }, { k: 'inc', r: 3, v: 15, max: 1 }] },
   bench:      { cat: 'decor', s: 1, cost: 20, kind: 'deco', fx: [{ k: 'well', r: 2, v: 4, max: 2 }] },
   lamp:       { cat: 'decor', s: 1, cost: 25, kind: 'deco', fx: [{ k: 'well', r: 2, v: 3, max: 2 }, { k: 'inc', r: 2, v: 5, max: 2 }] },
-});
+};
+/** The catalogue. Upgradable kinds carry an explicit `tiers` table (config/tiers.js); tier 1 equals the entry. */
+export const DEFS = Object.freeze(Object.fromEntries(Object.entries(BASE_DEFS).map(([id, d]) => { const tiers = buildTiers(id, d); return [id, Object.freeze(tiers ? { ...d, tiers } : d)]; })));
 
 export const KINDS = Object.freeze(['road', 'house', 'shop', 'industry', 'service', 'utility', 'nature', 'deco']);
 export const CATS = Object.freeze(['paths', 'homes', 'shops', 'industry', 'services', 'green', 'decor']);
@@ -86,3 +89,20 @@ export const LANDMARK = 'cafe'; // the network root; unique and cannot be demoli
 /** Street styles (catalogue entries of kind 'road'). */
 export const isRoadType = type => DEFS[type]?.kind === 'road';
 export const ROAD_TYPES = Object.freeze(Object.keys(DEFS).filter(isRoadType));
+
+/** The tier record of a type (clamped to its table), or null for kinds without tiers. */
+export const tierOf = (type, tier = 1) => { const t = DEFS[type]?.tiers; return t ? t[Math.max(1, Math.min(t.length, tier | 0 || 1)) - 1] : null; };
+export const maxTierOf = type => DEFS[type]?.tiers ? DEFS[type].tiers.length : 1;
+export const canUpgrade = type => !!DEFS[type]?.tiers && DEFS[type].tiers.length > 1;
+const STATS_CACHE = new Map();
+/** The catalogue entry with a tier's numbers applied: what the rules use for jobs, capacity, customers, output, upkeep and radius. */
+export function tierStats(type, tier = 1) {
+  const key = type + '#' + tier; let st = STATS_CACHE.get(key);
+  if (!st) { const t = tierOf(type, tier); st = Object.freeze(t ? { ...DEFS[type], ...t, tier: t.level } : { ...DEFS[type], tier: 1 }); STATS_CACHE.set(key, st); }
+  return st;
+}
+/** Model id for a building's tier (renderers map it to a scene; e.g. 'bakery_t2'). */
+export const modelIdOf = (type, tier = 1) => tierOf(type, tier)?.model || type;
+/** Coins sunk into a building: its price plus every upgrade up to `tier`. */
+export function investedIn(type, tier = 1) { let c = DEFS[type].cost; for (let l = 2; l <= tier; l++) c += tierOf(type, l)?.upgradeCost || 0; return c; }
+export { MAX_TIER, TIER_STATS };

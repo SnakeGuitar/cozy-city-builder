@@ -3,10 +3,11 @@
 //   v2 — Villa Limón: flat object mixing game and UI preferences; buildings {id, t, x, y, r, s}.
 //   v3 — { v, game, ui }: `game` is everything the rules need, `ui` is presentation prefs kept opaque here.
 //   v4 — { v, mode, game, ui }: explicit mode ('normal' | 'sandbox'), tutorial progress, starter goals g0/g0b.
+//   v5 — every building records its tier (1–3); older buildings become tier 1.
 //
 // Repair policy: saves up to v3 always had a café, so one without it is damaged and the café is restored.
 // From v4 an empty map (no café yet) is a normal new game and is never "repaired".
-import { DEFS, LANDMARK } from '../config/catalog.js';
+import { DEFS, LANDMARK, maxTierOf } from '../config/catalog.js';
 import { GOALS } from '../config/goals.js';
 import { SPEEDS } from '../config/world.js';
 import { MODES } from '../config/rules.js';
@@ -14,7 +15,7 @@ import { TUTORIAL_STEPS } from '../tutorial/tutorial.js';
 import { canPlace, insertBuilding } from '../domain/grid.js';
 import { createEmptyState, listBuildings } from '../domain/state.js';
 import { clamp } from '../util/math.js';
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 // v1 (Strawberry Borough) building ids → current ids
 export const LEGACY_TYPES = Object.freeze({ houseA: 'fr_trad', houseB: 'fr_trad', houseC: 'fr_cont' });
 const LANDMARK_SPOTS = [[10, 11], [2, 2], [20, 2]];
@@ -26,7 +27,7 @@ export function serializeGame(state) {
     coins: state.coins, population: state.population, employed: state.employed, demand: { ...state.demand },
     clock: { time: state.clock.time, day: state.clock.day, speed: state.clock.speed }, goalsDone: [...state.goalsDone],
     nextId: state.nextId, rngSeed: state.rngSeed,
-    buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, x: b.x, y: b.y, r: b.r, seed: b.seed, well: b.well, open: b.open })),
+    buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, x: b.x, y: b.y, r: b.r, seed: b.seed, well: b.well, open: b.open })),
   };
 }
 export const createSaveDocument = (state, ui = {}) => ({ v: SAVE_VERSION, mode: state.mode, game: serializeGame(state), ui });
@@ -52,6 +53,11 @@ const MIGRATIONS = {
     // older towns already passed the starter goals and the tutorial
     const done = Array.isArray(d.game.goalsDone) ? d.game.goalsDone : [];
     return { v: 4, mode: 'normal', ui: d.ui, game: { ...d.game, mode: 'normal', tutorial: { step: 'done', signals: [] }, goalsDone: [...new Set(['g0', 'g0b', ...done])] } };
+  },
+  4: d => {
+    if (!d.game || typeof d.game !== 'object') throw new Error('v4 save without game data');
+    const list = Array.isArray(d.game.buildings) ? d.game.buildings : [];
+    return { ...d, v: 5, game: { ...d.game, buildings: list.map(b => (b && typeof b === 'object' ? { ...b, tier: 1 } : b)) } };
   },
 };
 
@@ -98,14 +104,15 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     let id = int(raw.id, 0, 0);
     if (!id || usedIds.has(id)) { if (raw.id !== undefined) warn(`${type}: duplicate or invalid id ${raw.id}`); id = 0; }
     if (id) usedIds.add(id);
-    pending.push({ type, x: raw.x, y: raw.y, r, seed, id, well: num(raw.well, 50, 0, 100), open: typeof raw.open === 'boolean' ? raw.open : true });
+    const top = maxTierOf(type), tier = raw.tier === undefined ? 1 : Number.isInteger(raw.tier) && raw.tier >= 1 && raw.tier <= top ? raw.tier : (warn(`${type}: tier ${raw.tier} reset to ${clamp(int(raw.tier, 1), 1, top)}`), clamp(int(raw.tier, 1), 1, top));
+    pending.push({ type, tier, x: raw.x, y: raw.y, r, seed, id, well: num(raw.well, 50, 0, 100), open: typeof raw.open === 'boolean' ? raw.open : true });
   }
   state.nextId = Math.max(int(g.nextId, 1, 1), ...[...usedIds].map(i => i + 1), 1);
   for (const p of pending) {
     const why = canPlace(state, p.type, p.x, p.y);
     if (why) { warn(`${p.type} at ${p.x},${p.y}: ${why}`); if (p.id) usedIds.delete(p.id); continue; }
     if (p.type === LANDMARK && Object.values(state.buildings).some(b => b.type === LANDMARK)) { warn('second café dropped'); continue; }
-    const b = insertBuilding(state, p.type, p.x, p.y, p.r, p.seed, p.id || state.nextId);
+    const b = insertBuilding(state, p.type, p.x, p.y, p.r, p.seed, p.id || state.nextId, p.tier);
     b.well = p.well; b.open = p.open;
   }
   if (repairLandmark && !Object.values(state.buildings).some(b => b.type === LANDMARK)) {
