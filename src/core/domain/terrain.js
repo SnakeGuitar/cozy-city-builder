@@ -211,16 +211,25 @@ export function terrainBlocker(state, o, { onWater = false } = {}) {
   }
   return hi - lo > MAX_BUILD_STEP + 1e-9 ? 'slope' : null;
 }
-/** Why a road cannot follow this centre line, or null: 'water', 'rock' or 'slope' (steeper than MAX_ROAD_GRADE). */
+/**
+ * Why a road cannot follow this centre line, or null: { reason: 'water' | 'rock' | 'slope', at: { x, z } } — `at` is
+ * where the problem starts (front ends mark it). 'slope' = steeper than MAX_ROAD_GRADE.
+ */
 export function roadTerrainBlocker(state, polyline) {
   if (!terrainOf(state)) return null;
   for (let i = 0; i < polyline.length; i++) {
-    const p = polyline[i], g = groundAt(state, p.x, p.z);
-    if (g === 'water' || g === 'ice') return 'water';
-    if (g === 'rock') return 'rock';
-    if (i) { const q = polyline[i - 1], run = Math.hypot(p.x - q.x, p.z - q.z); if (run > 1e-9 && Math.abs(heightAt(state, p.x, p.z) - heightAt(state, q.x, q.z)) / run > MAX_ROAD_GRADE + 1e-9) return 'slope'; }
+    const p = polyline[i], g = groundAt(state, p.x, p.z), at = { x: p.x, z: p.z };
+    if (g === 'water' || g === 'ice') return { reason: 'water', at };
+    if (g === 'rock') return { reason: 'rock', at };
+    if (i) { const q = polyline[i - 1], run = Math.hypot(p.x - q.x, p.z - q.z); if (run > 1e-9 && Math.abs(heightAt(state, p.x, p.z) - heightAt(state, q.x, q.z)) / run > MAX_ROAD_GRADE + 1e-9) return { reason: 'slope', at: { x: (p.x + q.x) / 2, z: (p.z + q.z) / 2 } }; }
   }
   return null;
+}
+/** Steepest climb along a centre line (rise per unit of length), for previews. */
+export function maxGrade(state, polyline) {
+  if (!terrainOf(state)) return 0; let g = 0;
+  for (let i = 1; i < polyline.length; i++) { const p = polyline[i], q = polyline[i - 1], run = Math.hypot(p.x - q.x, p.z - q.z); if (run > 1e-9) g = Math.max(g, Math.abs(heightAt(state, p.x, p.z) - heightAt(state, q.x, q.z)) / run); }
+  return g;
 }
 
 // ---------------------------------------------------------------- decoration (never stored)

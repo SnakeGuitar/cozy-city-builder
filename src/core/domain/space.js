@@ -8,7 +8,7 @@
 //   (lotDistance), which keeps the original tile distances exactly for grid-aligned towns.
 import { DEFS, isRoadType } from '../config/catalog.js';
 import { GRID_SIZE } from '../config/world.js';
-import { createBuilding } from './state.js';
+import { createBuilding, bumpRev } from './state.js';
 import { roadHitsObb, onRoad } from './roads.js';
 import { terrainBlocker } from './terrain.js';
 import { makeObb, obbAabb, obbOverlap, obbCorners, normAngle, quarterToAngle, cosSin, lotDistance, pointInObb, QUARTER } from './geometry.js';
@@ -123,12 +123,13 @@ export function insertBuilding(state, type, pose, seed, id = state.nextId, tier 
   const b = createBuilding(id, type, { x: pose.position.x, z: pose.position.z }, normAngle(pose.rotation), seed, tier);
   state.buildings[id] = b; if (id >= state.nextId) state.nextId = id + 1;
   if (!state.spatial) reindex(state); else indexAdd(state, b);
-  return b;
+  bumpRev(state); return b;
 }
-export function removeBuilding(state, b) { if (state.spatial) indexRemove(state, b); delete state.buildings[b.id]; }
+export function removeBuilding(state, b) { if (state.spatial) indexRemove(state, b); delete state.buildings[b.id]; bumpRev(state); }
 /** Moves / turns a building in place, keeping the index in step. */
 export function setPose(state, b, position, rotation) {
   if (state.spatial) indexRemove(state, b);
   b.position = { x: position.x, z: position.z }; b.rotation = normAngle(rotation);
   if (state.spatial) indexAdd(state, b);
+  bumpRev(state);
 }

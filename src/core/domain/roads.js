@@ -18,7 +18,7 @@ export const SNAP_RADIUS = .55;       // a road end this close to a node or a ro
 export const createRoads = () => ({ nodes: {}, segments: {}, nextNodeId: 1, nextSegmentId: 1 });
 export const roadsOf = state => state.roads || (state.roads = createRoads());
 /** Marks the network as changed (drops cached geometry). Every mutation below calls it. */
-export function touchRoads(state) { const r = roadsOf(state); geoCache.delete(r); return r; }
+export function touchRoads(state) { const r = roadsOf(state); geoCache.delete(r); state.rev = (state.rev || 0) + 1; return r; }
 
 export const listSegments = state => Object.values(roadsOf(state).segments).sort((a, b) => a.id - b.id);
 export const listNodes = state => Object.values(roadsOf(state).nodes).sort((a, b) => a.id - b.id);

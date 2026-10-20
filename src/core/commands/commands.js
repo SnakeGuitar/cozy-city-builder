@@ -5,7 +5,7 @@ import { SPEEDS } from '../config/world.js';
 import { rulesFor } from '../config/rules.js';
 import { autoFace, canPlace, insertBuilding, removeBuilding, setPose, tileToPose, snapToGrid, overlapping, obbFor } from '../domain/space.js';
 import { roadsOf, addTileRoad, nodeAtPoint, roadHitsObb, removeSegment, touchRoads, curvePoints, segmentControl, normalizeRoads, listSegments, listNodes, segmentPolyline } from '../domain/roads.js';
-import { planRoad, applyRoad, checkCurve } from '../domain/roadPlan.js';
+import { planTrace, checkCurve } from '../domain/roadPlan.js';
 import { makeObb } from '../domain/geometry.js';
 import { normAngle, angleToQuarter, QUARTER } from '../domain/geometry.js';
 import { unlockedTypes } from '../goals/goals.js';
@@ -142,17 +142,20 @@ const handlers = {
     if (refund) events.push(coinsEvent(state, refund));
     return { ok: true, id: b.id, events };
   },
-  /** Draws a road: { points: [{x, z}, …] (ends + control points), style, snap? }. See domain/roadPlan.js. */
+  /**
+   * Draws a road trace atomically: { points: [{x, z}, …], style, shape?: 'curve' | 'polyline', snap? }.
+   * 'curve' passes smoothly through the points; 'polyline' builds straight legs (an L takes three points).
+   * The whole trace is planned first (domain/roadPlan.js planTrace); it is built and paid for at once, or not at all.
+   */
   [CMD.BuildRoad](state, cmd) {
     if (!isRoadType(cmd.style)) return reject(cmd, 'unknown');
     if (!unlockedTypes(state).has(cmd.style)) return reject(cmd, 'locked');
-    const plan = planRoad(state, { points: cmd.points, style: cmd.style, snap: cmd.snap !== false }); if (!plan.ok) return reject(cmd, plan.reason);
-    const cost = roadCostFor(state, plan); if (!canAffordCoins(state, cost)) return reject(cmd, 'notEnough');
-    state.coins -= cost;
-    const made = applyRoad(state, { ...plan, paid: cost });
-    const events = [roadEvent(state, { style: cmd.style, nodeIds: made.nodeIds, segmentIds: made.segmentIds, cost, length: plan.length })];
+    const trace = planTrace(state, { points: cmd.points, style: cmd.style, shape: cmd.shape || 'curve', snap: cmd.snap !== false }); if (!trace.ok) return reject(cmd, trace.reason);
+    const cost = roadCostFor(state, trace); if (!canAffordCoins(state, cost)) return reject(cmd, 'notEnough');
+    state.coins -= cost; state.roads = trace.roads; touchRoads(state);
+    const events = [roadEvent(state, { style: cmd.style, shape: cmd.shape || 'curve', nodeIds: trace.nodeIds, segmentIds: trace.segmentIds, cost, length: trace.length })];
     if (cost) events.push(coinsEvent(state, -cost));
-    return { ok: true, ...made, events };
+    return { ok: true, nodeIds: trace.nodeIds, segmentIds: trace.segmentIds, events };
   },
   /** Removes one road segment ({ segmentId }) or a lone road cell with its links ({ nodeId }); half of what it cost comes back. */
   [CMD.DemolishRoad](state, cmd) {
@@ -209,6 +212,7 @@ const handlers = {
     if (!why) for (const n of listNodes(state)) if (n.width && overlapping(state, makeObb(n.position.x, n.position.z, n.width, n.width, 0)).length) { why = 'blocked'; break; }
     if (why) { state.roads = prev; return reject(cmd, why); }
     if (!rulesFor(state).unlimitedMoney) state.coins += delta;
+    touchRoads(state);
     const events = [{ type: 'roads_replaced' }];
     if (delta && !rulesFor(state).unlimitedMoney) events.push(coinsEvent(state, delta));
     return { ok: true, events };

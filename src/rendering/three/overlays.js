@@ -45,7 +45,9 @@ export function createOverlays(scene, ground = () => 0) {
   const handleMat = new THREE.MeshBasicMaterial({ color: '#fff8e6', depthTest: false }), handleOn = new THREE.MeshBasicMaterial({ color: '#4f8a1e', depthTest: false });
   const ringMat = new THREE.MeshBasicMaterial({ color: '#6a4631', depthTest: false, side: THREE.DoubleSide });
   const handleGeo = new THREE.SphereGeometry(.13, 14, 10), ringGeo = new THREE.RingGeometry(.15, .2, 24).rotateX(-Math.PI / 2);
-  let plan = null, planBand = null, hi = null, hiKey = '', sel = null, selKey = '', handles = null;
+  let plan = null, planBand = null, hi = null, hiKey = '', sel = null, selKey = '', handles = null, markers = null;
+  const endRingGeo = new THREE.RingGeometry(.22, .3, 28).rotateX(-Math.PI / 2), endDotGeo = new THREE.CircleGeometry(.14, 20).rotateX(-Math.PI / 2), crossGeo = new THREE.BoxGeometry(.5, .02, .09);
+  const joinedMat = new THREE.MeshBasicMaterial({ color: '#4f8a1e', depthTest: false }), freeMat = new THREE.MeshBasicMaterial({ color: '#fff8e6', depthTest: false }), problemMat = new THREE.MeshBasicMaterial({ color: '#c8553f', depthTest: false });
   /** A road piece as a highlight mesh. */
   function pieceMesh(state, piece, mat) {
     const r = roadsOf(state); let m = null;
@@ -79,6 +81,24 @@ export function createOverlays(scene, ground = () => 0) {
       const key = piece && state ? JSON.stringify(piece) + (selected ? JSON.stringify(roadsOf(state).segments[piece.segmentId]?.controlPoints || '') : '') : '';
       if (selected) { if (key === selKey) return; selKey = key; disposeGroup(sel); sel = key ? pieceMesh(state, piece, selMat) : null; return; }
       if (key === hiKey) return; hiKey = key; disposeGroup(hi); hi = key ? pieceMesh(state, piece, hiMat) : null;
+    },
+    /**
+     * Markers for a road being drawn: { ends: [{ position, joined }], problem: { x, z } | null }, or null to hide.
+     * A joined end (it meets an existing road) is a filled green disc in a ring; a free end only a ring; a problem a red cross.
+     */
+    roadMarkers(m) {
+      disposeGroup(markers); markers = null; if (!m) return;
+      markers = new THREE.Group();
+      for (const e of m.ends || []) {
+        const y = ground(e.position.x, e.position.z) + .12, ring = new THREE.Mesh(endRingGeo, e.joined ? joinedMat : freeMat); ring.position.set(e.position.x, y, e.position.z); ring.renderOrder = 13; markers.add(ring);
+        if (e.joined) { const dot = new THREE.Mesh(endDotGeo, joinedMat); dot.position.set(e.position.x, y, e.position.z); dot.renderOrder = 13; markers.add(dot); }
+      }
+      if (m.problem) {
+        const y = ground(m.problem.x, m.problem.z) + .14;
+        for (const a of [Math.PI / 4, -Math.PI / 4]) { const bar = new THREE.Mesh(crossGeo, problemMat); bar.position.set(m.problem.x, y, m.problem.z); bar.rotation.y = a; bar.renderOrder = 14; markers.add(bar); }
+        const ring = new THREE.Mesh(endRingGeo, problemMat); ring.position.set(m.problem.x, y, m.problem.z); ring.scale.setScalar(1.4); ring.renderOrder = 14; markers.add(ring);
+      }
+      scene.add(markers);
     },
     /** Drag handles on a curve's control points (null hides them); the active one is green. */
     roadHandles(points, active = -1) {

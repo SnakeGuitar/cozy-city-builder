@@ -52,6 +52,6 @@ test('snapped poses go through the commands unchanged', () => {
 test('placement preferences are saved with the game and normalised on load', async () => {
   const { normalizePlacement, DEFAULT_PLACEMENT } = await import('../src/ui/interaction.js');
   assert.deepEqual(normalizePlacement(), { ...DEFAULT_PLACEMENT });
-  assert.deepEqual(normalizePlacement({ mode: 'free', snapGrid: 1, snapRoad: false, step: 45 }), { mode: 'free', snapGrid: true, snapRoad: false, snapBuild: true, step: 45 });
-  assert.deepEqual(normalizePlacement({ mode: 'diagonal', step: 7 }), { ...DEFAULT_PLACEMENT }, 'unknown values fall back');
+  assert.deepEqual(normalizePlacement({ mode: 'free', snapGrid: 1, snapRoad: false, step: 45, roadShape: 'l' }), { mode: 'free', snapGrid: true, snapRoad: false, snapBuild: true, step: 45, roadShape: 'l' });
+  assert.deepEqual(normalizePlacement({ mode: 'diagonal', step: 7, roadShape: 'spiral' }), { ...DEFAULT_PLACEMENT }, 'unknown values fall back');
 });

@@ -7,15 +7,17 @@ export function createAudio(muted = false) {
     o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + dur + .05);
   };
   const apply = () => { if (out) out.gain.value = muted ? 0 : .5; };
+  // the same sound at most once per `ms`: painting a street or dragging through many cells never piles sounds up
+  const last = {}, gate = (name, ms) => { const now = performance.now(); if (now - (last[name] || -1e9) < ms) return false; last[name] = now; return true; };
   return {
     init() { if (ctx) return; try { ctx = new (window.AudioContext || window.webkitAudioContext)(); out = ctx.createGain(); out.connect(ctx.destination); apply(); } catch (e) { ctx = null; } },
     setMuted(m) { muted = m; apply(); },
-    place() { note(523, .3, 'triangle', .1); note(784, .4, 'sine', .07, .07); },
-    tick() { note(660 + Math.random() * 80, .07, 'triangle', .04); },
-    coin() { note(1318, .16, 'sine', .025); note(1760, .2, 'sine', .02, .05); },
+    place() { if (!gate('place', 90)) return; note(523, .3, 'triangle', .1); note(784, .4, 'sine', .07, .07); },
+    tick() { if (!gate('tick', 70)) return; note(660 + Math.random() * 80, .07, 'triangle', .04); },
+    coin() { if (!gate('coin', 250)) return; note(1318, .16, 'sine', .025); note(1760, .2, 'sine', .02, .05); },
     unlock() { [523, 659, 784, 1046].forEach((f, i) => note(f, .55, 'triangle', .08, i * .09)); },
     upgrade() { [392, 523, 659, 784, 1046].forEach((f, i) => note(f, .5, 'triangle', .07, .5 + i * .07)); note(1568, .8, 'sine', .04, .9); [196, 247].forEach((f, i) => note(f, .12, 'square', .025, i * .18)); },
-    remove() { note(220, .25, 'triangle', .1); note(165, .3, 'sine', .07, .06); },
+    remove() { if (!gate('remove', 90)) return; note(220, .25, 'triangle', .1); note(165, .3, 'sine', .07, .06); },
     click() { note(990, .05, 'sine', .03); },
     chirp() {
       if (!ctx || muted) return;

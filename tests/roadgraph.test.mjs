@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CMD, DEFS, planRoad, curvePoints, polylineLength, closestOnPolyline, segmentPolyline, listSegments, listNodes, computeDerived,
-  createSaveDocument, loadSave, serializeGame, normalizeRoads, canPlace, nearestRoadPoint, roadCostOf, segmentsAt } from '../src/core/index.js';
+  createSaveDocument, loadSave, serializeGame, normalizeRoads, canPlace, nearestRoadPoint, roadCostOf, segmentsAt, planTrace, serializeRoads, traceReachesCafe } from '../src/core/index.js';
 import { makeState, createGame, ALL_GOALS } from './helpers.mjs';
 
 const game = (over = {}, extra = []) => createGame({ state: makeState(extra, { coins: 5000, goalsDone: ALL_GOALS, ...over }) });
@@ -190,4 +190,32 @@ test('undo / redo of road operations restores the network and the coins', () => 
   assert.ok(h.dispatch({ type: CMD.Place, buildingType: 'fr_trad', position: { x: 0, z: 3 }, rotation: 0 }).ok);
   assert.equal(h.undoRoad().reason, 'blocked'); assert.deepEqual(h.roadHistory, { undo: 2, redo: 0 });
   assert.ok(a.ok);
+});
+
+test('traces: an L is two straight legs built and paid at once, undone at once; the preview is the result', () => {
+  const g = game({}, [['cafe', 11, 11]]), s0 = snap(g), coins = s0.coins;
+  const req = { points: [{ x: -6, z: 1.6 }, { x: 4, z: 1.6 }, { x: 4, z: 8 }], style: 'road_asphalt', shape: 'polyline' };
+  const trace = planTrace(s0, req);
+  assert.ok(trace.ok, trace.reason); assert.equal(trace.legs.length, 2); assert.ok(Math.abs(trace.length - 16.4) < 1e-9);
+  assert.equal(trace.cost, roadCostOf('road_asphalt', 10) + roadCostOf('road_asphalt', 6.4), 'each leg priced by its length');
+  assert.equal(traceReachesCafe(s0, trace), true, 'it passes the café, so it joins the network');
+  assert.deepEqual(listSegments(s0), [], 'planning built nothing');
+  const res = g.dispatch({ type: CMD.BuildRoad, ...req }); assert.ok(res.ok);
+  assert.deepEqual(serializeRoads(snap(g)), serializeRoads({ roads: trace.roads }), 'what was previewed is what was built');
+  assert.equal(snap(g).coins, coins - trace.cost, 'charged once, for the whole trace');
+  const corner = listNodes(snap(g)).find(n => n.position.x === 4 && n.position.z === 1.6); assert.ok(corner); assert.equal(segmentsAt(snap(g), corner.id).length, 2);
+  assert.ok(listSegments(snap(g)).every(x => x.controlPoints.length === 0), 'straight legs');
+  assert.ok(g.undoRoad().ok); assert.deepEqual(listSegments(snap(g)), [], 'one undo removes the whole trace'); assert.equal(snap(g).coins, coins);
+});
+
+test('traces are atomic: a blocked leg builds nothing and costs nothing; the same trace twice is refused, not paid twice', () => {
+  const g = game({}, [['fr_trad', 16, 18]]), coins = snap(g).coins; // a house at (4.5, 6.5) in the way of the second leg
+  const res = g.dispatch({ type: CMD.BuildRoad, points: [{ x: -6, z: 1.6 }, { x: 4.5, z: 1.6 }, { x: 4.5, z: 9 }], style: 'road', shape: 'polyline' });
+  assert.equal(res.reason, 'blocked'); assert.deepEqual(listSegments(snap(g)), []); assert.equal(snap(g).coins, coins);
+  const p = planTrace(snap(g), { points: [{ x: -6, z: 1.6 }, { x: 4.5, z: 1.6 }, { x: 4.5, z: 9 }], style: 'road', shape: 'polyline' });
+  assert.equal(p.failedLeg, 1); assert.equal(p.blocker, Object.values(snap(g).buildings)[0].id); assert.ok(p.at, 'the preview knows where');
+  const ok = { points: [{ x: -6, z: -3 }, { x: 6, z: -3 }], style: 'road' };
+  assert.ok(g.dispatch({ type: CMD.BuildRoad, ...ok }).ok); const after = snap(g).coins;
+  assert.equal(g.dispatch({ type: CMD.BuildRoad, ...ok }).reason, 'roadOverlap'); assert.equal(snap(g).coins, after);
+  assert.equal(g.dispatch({ type: CMD.BuildRoad, ...ok, shape: 'spiral' }).reason, 'unknown');
 });

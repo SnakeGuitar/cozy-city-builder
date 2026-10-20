@@ -32,6 +32,9 @@ export function createBuilding(id, type, position, rotation, seed, tier = 1) {
 /** A building's numbers at its tier (jobs, capacity, customers, output, upkeep, radius …). */
 export const statsOf = b => tierStats(b.type, b.tier || 1);
 
+/** Marks a structural change (buildings or roads). Caches keyed by `state.rev` know they are stale. Never saved. */
+export function bumpRev(state) { state.rev = (state.rev || 0) + 1; return state.rev; }
+
 /** Buildings in ascending id order. Every system iterates in this order, which keeps results deterministic. */
 export function listBuildings(state) { return Object.values(state.buildings).sort((a, b) => a.id - b.id); }
 export const kindOf = b => DEFS[b.type].kind;

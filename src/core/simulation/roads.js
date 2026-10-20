@@ -40,3 +40,11 @@ export function computeRoadNetwork(state, things) {
   for (const b of things) connected[b.id] = b.type === LANDMARK ? mainNodes.length > 0 : mainRoots.size > 0 && piecesNear(state, b, isMain).length > 0;
   return { mainNodes, mainSegments, connected };
 }
+
+/** Whether a planned trace (planTrace: its `roads` afterwards and new `segmentIds`) would be part of the café's network. Pure. */
+export function traceReachesCafe(state, trace) {
+  if (!trace?.roads || !trace.segmentIds?.length) return false;
+  const after = { ...state, roads: trace.roads }, things = Object.values(state.buildings).filter(b => b.type === LANDMARK); // only the café matters here
+  const main = new Set(computeRoadNetwork(after, things).mainSegments);
+  return trace.segmentIds.some(id => main.has(id));
+}

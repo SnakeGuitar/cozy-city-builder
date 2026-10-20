@@ -12,17 +12,19 @@ import { quarterToAngle, angleToQuarter, normAngle } from '../core/domain/geomet
 import { snapPosition, snapAngle, snapToRoad, snapToBuildings } from '../core/domain/snap.js';
 import { statsOf } from '../core/domain/state.js';
 import { CMD, peekSeed, refundFor, costFor, canAfford, roadCostFor } from '../core/commands/commands.js';
-import { planRoad, roadPieceAt, checkCurve } from '../core/domain/roadPlan.js';
+import { planTrace, roadPieceAt, checkCurve } from '../core/domain/roadPlan.js';
+import { traceReachesCafe } from '../core/simulation/roads.js';
 import { roadsOf, segmentControl, curvePoints, polylineLength, segmentPolyline, pointAt } from '../core/domain/roads.js';
 import { simplifyPath } from '../presentation/input/path.js';
 import { $ } from './dom/dom.js';
 import { t } from './dom/i18n.js';
 
 /** Placement preferences (saved with each game's UI data). */
-export const DEFAULT_PLACEMENT = Object.freeze({ mode: 'grid', snapGrid: false, snapRoad: true, snapBuild: true, step: 15 });
+export const ROAD_SHAPES = Object.freeze(['straight', 'l', 'curve']);
+export const DEFAULT_PLACEMENT = Object.freeze({ mode: 'grid', snapGrid: false, snapRoad: true, snapBuild: true, step: 15, roadShape: 'straight' });
 export function normalizePlacement(p = {}) {
   return { mode: p.mode === 'free' ? 'free' : 'grid', snapGrid: !!p.snapGrid, snapRoad: p.snapRoad !== false, snapBuild: p.snapBuild !== false,
-    step: [5, 15, 45, 90].includes(p.step) ? p.step : DEFAULT_PLACEMENT.step };
+    step: [5, 15, 45, 90].includes(p.step) ? p.step : DEFAULT_PLACEMENT.step, roadShape: ROAD_SHAPES.includes(p.roadShape) ? p.roadShape : DEFAULT_PLACEMENT.roadShape };
 }
 
 export function createInteraction({ game, view, onChange, placement = () => DEFAULT_PLACEMENT }) {
@@ -38,17 +40,52 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
   const freeMode = () => prefs().mode === 'free' && building() && !isRoadType(tool.type);
   /** Street tool in free mode: draw roads by dragging instead of painting cells. */
   const drawMode = () => prefs().mode === 'free' && tool.kind === 'build' && isRoadType(tool.type);
-  const roadRequest = path => ({ points: simplifyPath(prefs().snapGrid ? path.map(p => snapPosition(p, .5)) : path), style: tool.type });
+  const roadShape = () => prefs().roadShape;
+  let flipL = false;
+  /** What the current drag asks the street tool for: a straight road, an L of two straight legs, or a smooth curve. */
+  function roadRequest(path) {
+    const p = prefs(), q = pt => (p.snapGrid ? snapPosition(pt, .5) : { x: pt.x, z: pt.z }), a = q(path[0]), style = tool.type;
+    let b = q(path.at(-1));
+    if (roadShape() === 'curve') return { points: simplifyPath(path.map(q)), style, shape: 'curve' };
+    if (roadShape() === 'straight') {
+      if (p.snapGrid) { const len = Math.hypot(b.x - a.x, b.z - a.z), ang = snapAngle(Math.atan2(b.z - a.z, b.x - a.x), Math.PI / 12); b = { x: a.x + Math.cos(ang) * len, z: a.z + Math.sin(ang) * len }; }
+      return { points: [a, b], style, shape: 'polyline' };
+    }
+    // an L: the first leg follows the direction the drag set off in (F flips the corner)
+    const lead = path.find(pt => Math.hypot(pt.x - path[0].x, pt.z - path[0].z) > .4) || b;
+    const alongX = (Math.abs(lead.x - path[0].x) >= Math.abs(lead.z - path[0].z)) !== flipL, corner = alongX ? { x: b.x, z: a.z } : { x: a.x, z: b.z };
+    const degenerate = Math.hypot(corner.x - a.x, corner.z - a.z) < .3 || Math.hypot(corner.x - b.x, corner.z - b.z) < .3;
+    return { points: degenerate ? [a, b] : [a, corner, b], style, shape: 'polyline' };
+  }
+  let planMemo = { key: '', trace: null };
+  /** The full plan of a request (memoised per request and state revision: idle frames cost nothing). */
+  function traceFor(req) {
+    const { state } = snap(), key = JSON.stringify(req) + '|' + (state.rev || 0) + '|' + state.coins;
+    if (planMemo.key !== key) { const trace = planTrace(state, req); planMemo = { key, trace: { ...trace, joins: trace.ok && traceReachesCafe(state, trace) } }; }
+    return planMemo.trace;
+  }
   function showRoadPlan(req, at) {
-    const { state } = snap(), plan = planRoad(state, req), cost = plan.cost !== undefined ? roadCostFor(state, plan) : 0;
+    const { state } = snap(), plan = traceFor(req), cost = plan.cost !== undefined ? roadCostFor(state, plan) : 0;
+    if (!plan.ok && plan.reason === 'tooShort') { // the drag has barely started: nothing to judge yet
+      view.overlays.hideRoadPlan(); view.overlays.roadMarkers(plan.start?.position ? { ends: [{ position: plan.start.position, joined: plan.start.kind !== 'free' }] } : null); return { plan, why: null };
+    }
     const why = plan.ok ? (!canAffordRoad(state, cost) ? 'notEnough' : null) : plan.reason;
     view.overlays.roadPlan(plan, !why);
-    if (at) { tip.hidden = false; tip.innerHTML = `${t('n_' + tool.type)} · ${plan.length ? `${plan.length.toFixed(1)} m · ` : ''}${cost ? `${cost} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>` : t('free')}${why ? ` · <span class="bad">${t(why)}</span>` : ''}<br><span style="font-weight:600;opacity:.7">${t('roadsDraw')}</span>`;
-      const tx = Math.min(at.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${at.y + 18}px)`; }
+    view.overlays.roadMarkers({ ends: [plan.start, plan.end].filter(e => e && e.position).map(e => ({ position: e.position, joined: e.kind !== 'free' })), problem: why && plan.at ? plan.at : null });
+    const blocker = plan.blocker && state.buildings[plan.blocker];
+    if (blocker) view.overlays.footprint(blocker.type, blocker.position, blocker.rotation, false);
+    if (at) {
+      const coin = '<svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>';
+      const grade = plan.grade > .03 ? ` · ${t('roadGrade', { n: Math.round(plan.grade * 100) })}` : '';
+      const link = plan.ok ? `<br><span class="${plan.joins ? 'ok' : 'warn'}">${plan.joins ? '✓ ' + t('roadJoinsCafe') : '○ ' + t('roadNotYetCafe')}</span>` : '';
+      tip.hidden = false;
+      tip.innerHTML = `${t('n_' + tool.type)} · ${plan.length ? `${plan.length.toFixed(1)} m · ` : ''}${cost ? `${cost} ${coin}` : t('free')}${grade}${why ? ` · <span class="bad">✕ ${t(why)}</span>` : ''}${link}<br><span style="font-weight:600;opacity:.7">${t('roadsDraw_' + roadShape())}</span>`;
+      const tx = Math.min(at.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${at.y + 18}px)`;
+    }
     return { plan, why };
   }
   const canAffordRoad = (state, cost) => game.rules().unlimitedMoney || state.coins >= cost;
-  function buildRoad(req) { const res = game.dispatch({ type: CMD.BuildRoad, ...req }); view.overlays.hideRoadPlan(); return res.ok; }
+  function buildRoad(req) { const res = game.dispatch({ type: CMD.BuildRoad, ...req }); view.overlays.hideRoadPlan(); view.overlays.roadMarkers(null); return res.ok; }
   const stepRad = () => prefs().step * Math.PI / 180;
 
   /** Pose of the current tool on grid cell (x, y): quarter turn chosen by hand (R) or facing the road. */
@@ -74,7 +111,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
 
   function setTool(next) {
     if (tool.kind === 'move' && next.kind !== 'move') view.setBuildingHidden(tool.id, false);
-    tool = { r: 0, rot: 0, manualR: false, ...next }; confirmDemo = false; pending = null; draft = null; pendingRoad = null; view.overlays.hideRoadPlan();
+    tool = { r: 0, rot: 0, manualR: false, ...next }; confirmDemo = false; pending = null; draft = null; pendingRoad = null; view.overlays.hideRoadPlan(); view.overlays.roadMarkers(null);
     view.overlays.clearGhost(); view.overlays.hideFootprint(); tip.hidden = true;
     view.overlays.setBuildMode(building() || tool.kind === 'demolish');
     if (!selected) view.overlays.hideRange();
@@ -126,7 +163,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
   function updateHover() {
     view.overlays.hideFootprint(); tip.hidden = true; if (tool.kind !== 'demolish') view.overlays.roadHighlight(null, null);
     if (building() && pending) { preview(pending, false); return; } // touch: the preview stays where it was tapped
-    if (drawMode()) { view.overlays.hideGhost(); if (pendingRoad) showRoadPlan(pendingRoad, null); else if (draft) showRoadPlan(roadRequest(draft), mouse.in ? mouse : null); else if (mouse.in) { tip.hidden = false; tip.innerHTML = `${t('n_' + tool.type)}<br><span style="font-weight:600;opacity:.7">${t('roadsDraw')}</span>`; const tx = Math.min(mouse.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${mouse.y + 18}px)`; } return; }
+    if (drawMode()) { view.overlays.hideGhost(); if (pendingRoad) showRoadPlan(pendingRoad, null); else if (draft) showRoadPlan(roadRequest(draft), mouse.in ? mouse : null); else if (mouse.in) { view.overlays.roadMarkers(null); tip.hidden = false; tip.innerHTML = `${t('n_' + tool.type)}<br><span style="font-weight:600;opacity:.7">${t('roadsDraw_' + roadShape())}</span>`; const tx = Math.min(mouse.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${mouse.y + 18}px)`; } return; }
     if (!mouse.in) { view.overlays.hideGhost(); return; }
     const { state } = snap();
     if (building()) { const pose = poseAt(mouse.x, mouse.y); if (!pose) return; hover = pose; preview(pose, true); }
@@ -245,7 +282,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     confirmPending() { if (pendingRoad) { const ok = buildRoad(pendingRoad); pendingRoad = null; onChange('tool'); return ok; } if (pending && building()) return place(pending); return false; },
     /** Escape / right click: drop a road being drawn or a pending preview, then the tool, then the selection. False when there was nothing to cancel. */
     cancel() { if (road) { if (editing) { editing = false; showHandles(); onChange('selection'); } else selectRoad(null); return true; }
-      if (draft || pendingRoad) { draft = null; pendingRoad = null; view.overlays.hideRoadPlan(); onChange('tool'); updateHover(); return true; } if (pending) { pending = null; onChange('tool'); updateHover(); return true; } if (tool.kind !== 'select') { setTool({ kind: 'select' }); return true; } if (selected) { select(0); return true; } return false; },
+      if (draft || pendingRoad) { draft = null; pendingRoad = null; view.overlays.hideRoadPlan(); view.overlays.roadMarkers(null); onChange('tool'); updateHover(); return true; } if (pending) { pending = null; onChange('tool'); updateHover(); return true; } if (tool.kind !== 'select') { setTool({ kind: 'select' }); return true; } if (selected) { select(0); return true; } return false; },
     startMove(id) {
       const b = snap().state.buildings[id]; if (!b) return;
       select(0); setTool({ kind: 'move', id, type: b.type, r: angleToQuarter(b.rotation), rot: b.rotation, manualR: true }); view.setBuildingHidden(id, true);
@@ -259,6 +296,8 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
       }
       else if (selected) { const b = snap().state.buildings[selected]; game.dispatch({ type: CMD.Rotate, id: selected, by: prefs().mode === 'free' ? dir * stepRad() : dir * Math.PI / 2 }); if (b) select(selected); }
     },
+    /** F: the L trace turns its corner the other way. */
+    flipCorner() { if (!drawMode() || roadShape() !== 'l') return false; flipL = !flipL; updateHover(); return true; },
     /** Continuous turning (Ctrl + wheel) in free mode. */
     rotateBy(rad) { if (!freeMode()) return false; tool.rot = normAngle(tool.rot + rad); if (pending) pending = { ...pending, rotation: tool.rot, snapped: null }; updateHover(); return true; },
     /** The player switched grid ⇄ free (or a snap): redraw the preview. */

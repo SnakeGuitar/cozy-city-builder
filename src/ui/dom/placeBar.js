@@ -15,6 +15,8 @@ export function createPlaceBar({ interaction, prefs, onChange, history = () => (
     if (b.dataset.pm) p.mode = b.dataset.pm;
     else if (b.dataset.snap) p[b.dataset.snap] = !p[b.dataset.snap];
     else if (b.dataset.step) p.step = +b.dataset.step;
+    else if (b.dataset.shape) p.roadShape = b.dataset.shape;
+    else if (b.dataset.flip) { interaction.flipCorner(); return; }
     else if (b.dataset.hist) { if (b.dataset.hist === 'undo') interaction.undoRoad(); else interaction.redoRoad(); return render(); }
     else if (b.dataset.rot) { interaction.rotate(+b.dataset.rot); return render(); }
     else if (b.id === 'pb-ok') { interaction.confirmPending(); return render(); }
@@ -32,7 +34,8 @@ export function createPlaceBar({ interaction, prefs, onChange, history = () => (
     el.innerHTML = `<div class="pb-seg" role="group" aria-label="${t('placeMode')}">
         <button class="${on(!free)}" data-pm="grid" aria-pressed="${!free}">${ico('i-grid')}${t(roadTool ? 'pm_cells' : 'pm_grid')}</button>
         <button class="${on(free)}" data-pm="free" aria-pressed="${free}">${ico('i-free')}${t(roadTool ? 'pm_draw' : 'pm_free')}</button></div>
-      ${roadTool ? `<div class="pb-group"><button class="pb-ico" data-hist="undo" title="${t('undo')} (Ctrl + Z)" aria-label="${t('undo')}" ${history().undo ? '' : 'disabled'}>↶</button><button class="pb-ico" data-hist="redo" title="${t('redo')} (Ctrl + Y)" aria-label="${t('redo')}" ${history().redo ? '' : 'disabled'}>↷</button></div>${free ? `<div class="pb-group"><button class="pb-chip ${on(p.snapGrid)}" data-snap="snapGrid" aria-pressed="${p.snapGrid}">${t('snap_grid')}</button></div>` : ''}
+      ${roadTool ? `<div class="pb-group"><button class="pb-ico" data-hist="undo" title="${t('undo')} (Ctrl + Z)" aria-label="${t('undo')}" ${history().undo ? '' : 'disabled'}>↶</button><button class="pb-ico" data-hist="redo" title="${t('redo')} (Ctrl + Y)" aria-label="${t('redo')}" ${history().redo ? '' : 'disabled'}>↷</button></div>${free ? `<div class="pb-seg" role="group" aria-label="${t('roadShape')}">${['straight', 'l', 'curve'].map(sh => `<button class="${on(p.roadShape === sh)}" data-shape="${sh}" aria-pressed="${p.roadShape === sh}">${t('shape_' + sh)}</button>`).join('')}</div>
+          <div class="pb-group"><button class="pb-chip ${on(p.snapGrid)}" data-snap="snapGrid" aria-pressed="${p.snapGrid}">${t('snap_grid')}</button>${p.roadShape === 'l' ? `<button class="pb-chip" data-flip="1" title="${t('flipCorner')}">⤾ ${t('flipCorner')}</button>` : ''}</div>` : ''}
         ${interaction.pending ? `<div class="pb-group"><button class="pb-ok" id="pb-ok">✓ ${t('buildRoad')}</button><button class="pb-no" id="pb-no" aria-label="${t('cancel')}">✕</button></div>` : ''}` : `
       ${free ? `<div class="pb-group" role="group" aria-label="${t('snaps')}">
         <button class="pb-chip ${on(p.snapGrid)}" data-snap="snapGrid" aria-pressed="${p.snapGrid}">${t('snap_grid')}</button>

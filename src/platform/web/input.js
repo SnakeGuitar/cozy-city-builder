@@ -40,6 +40,7 @@ export function bindInput({ canvas, interaction, camera, game, audio, isPlaying,
     else if (k === 'v') camera.toggleMode();
     else if (k === 'r') interaction.rotate(e.shiftKey ? -1 : 1);
     else if (k === 'enter' && interaction.pending) interaction.confirmPending();
+    else if (k === 'f') interaction.flipCorner();
     else if (k === 'g' && interaction.tool.kind !== 'select') onTogglePlacement?.();
     else if (k === ' ') { e.preventDefault(); game.dispatch({ type: CMD.TogglePause }); }
     else if (k === '1' || k === '2' || k === '3') game.dispatch({ type: CMD.SetSpeed, speed: +k });

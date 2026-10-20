@@ -5,10 +5,11 @@
 // control points of a smooth curve (two points make a straight road). Ends within SNAP_RADIUS of a node join it;
 // ends on an existing road split it there. Where the new road crosses another, both are split and joined (an intersection).
 import { DEFS, isRoadType } from '../config/catalog.js';
+import { rulesFor } from '../config/rules.js';
 import { mapHalf, queryArea, obbOf } from './space.js';
 import { segmentObbDistance } from './geometry.js';
-import { roadTerrainBlocker } from './terrain.js';
-import { roadsOf, curvePoints, polylineLength, closestOnPolyline, segmentPolyline, nearestRoadPoint, roadPiecesIn, nodeRadius,
+import { roadTerrainBlocker, maxGrade } from './terrain.js';
+import { roadsOf, createRoads, serializeRoads, normalizeRoads, curvePoints, polylineLength, closestOnPolyline, segmentPolyline, nearestRoadPoint, roadPiecesIn, nodeRadius,
   addNode, addSegment, splitSegment, SNAP_RADIUS, listSegments } from './roads.js';
 
 const MIN_LENGTH = .5;
@@ -70,7 +71,7 @@ export function planRoad(state, { points, style, snap = true }) {
   const polyline = curvePoints([start.position, ...controlPoints, end.position]), length = polylineLength(polyline);
   const base = { style, width, length, cost: roadCostOf(style, length), polyline, start, end, controlPoints };
   if (length < MIN_LENGTH) return { ok: false, reason: 'tooShort', ...base };
-  const why = checkCurve(state, polyline, width); if (why) return { ok: false, reason: why.reason, blocker: why.blocker, ...base };
+  const why = checkCurve(state, polyline, width); if (why) return { ok: false, reason: why.reason, blocker: why.blocker, at: why.at, ...base };
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const p of polyline) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
   // crossings with other roads become intersections; running along a road is refused
@@ -89,23 +90,22 @@ export function planRoad(state, { points, style, snap = true }) {
     if (endGap(acc) < SNAP_RADIUS + hw || nearCross(acc)) continue;
     const near = nearestRoadPoint(state, polyline[i].x, polyline[i].z, 0);
     // the new centre line runs inside another road away from its ends and crossings
-    if (near && near.d < -Math.min(hw, near.half) * .5) return { ok: false, reason: 'roadOverlap', ...base };
+    if (near && near.d < -Math.min(hw, near.half) * .5) return { ok: false, reason: 'roadOverlap', at: { x: polyline[i].x, z: polyline[i].z }, ...base };
   }
   return { ok: true, ...base, crossings: cross };
 }
 
-/** Rules every road curve must follow: on the map, clear of buildings, and terrain rules. null or { reason, blocker? }. */
+/** Rules every road curve must follow: on the map, clear of buildings, and terrain rules. null or { reason, blocker?, at? }. */
 export function checkCurve(state, polyline, width) {
   const hw = width / 2, h = mapHalf(state);
-  if (polyline.some(p => Math.abs(p.x) > h - hw + 1e-9 || Math.abs(p.z) > h - hw + 1e-9)) return { reason: 'outside' };
+  const off = polyline.find(p => Math.abs(p.x) > h - hw + 1e-9 || Math.abs(p.z) > h - hw + 1e-9); if (off) return { reason: 'outside', at: { x: off.x, z: off.z } };
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const p of polyline) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
   for (const id of queryArea(state, { minX: minX - hw, maxX: maxX + hw, minZ: minZ - hw, maxZ: maxZ + hw })) {
     const b = state.buildings[id]; if (!b || isRoadType(b.type)) continue; const o = obbOf(b);
-    for (let i = 1; i < polyline.length; i++) if (segmentObbDistance(o, polyline[i - 1], polyline[i]) < hw - 1e-6) return { reason: 'blocked', blocker: id };
+    for (let i = 1; i < polyline.length; i++) if (segmentObbDistance(o, polyline[i - 1], polyline[i]) < hw - 1e-6) return { reason: 'blocked', blocker: id, at: { x: b.position.x, z: b.position.z } };
   }
-  const ground = roadTerrainBlocker(state, polyline); if (ground) return { reason: ground };
-  return null;
+  return roadTerrainBlocker(state, polyline);
 }
 
 /** Builds a planned road (from planRoad on the same state). Returns { nodeIds, segmentIds } created. */
@@ -155,4 +155,35 @@ export function roadPieceAt(state, x, z) {
   // a junction pad: the segment whose centre line is nearest
   let best = null; for (const s of segs) { const pl = segmentPolyline(state, s), d = closestOnPolyline(pl, x, z).d; if (!best || d < best.d) best = { segmentId: s.id, d }; }
   return { segmentId: best.segmentId };
+}
+
+// ---------------------------------------------------------------- traces: what the street tool asks for
+/** Shapes of a trace: 'curve' — one smooth road through the points; 'polyline' — straight legs between them (an L, a zigzag). */
+export const TRACE_SHAPES = Object.freeze(['curve', 'polyline']);
+const cloneRoads = r => normalizeRoads(serializeRoads({ roads: r }));
+
+/**
+ * Plans a whole trace on a scratch copy of the network, exactly as BuildRoad will build it. Pure for `state`.
+ * Returns { ok, reason?, at?, blocker?, failedLeg?, style, width, shape, cost, length, polyline, legs, grade, roads, segmentIds, nodeIds, start, end }:
+ *   roads — the network as it would be afterwards (the command adopts it, so preview and result cannot differ)
+ *   grade — the steepest climb along the trace (rise per unit)
+ */
+export function planTrace(state, { points, style, shape = 'curve', snap = true }) {
+  if (!TRACE_SHAPES.includes(shape)) return { ok: false, reason: 'unknown', style, shape };
+  if (!isRoadType(style)) return { ok: false, reason: 'unknown', style, shape };
+  const pts = Array.isArray(points) ? points.filter((p, i) => i === 0 || !p || !points[i - 1] || Math.hypot(p.x - points[i - 1].x, p.z - points[i - 1].z) > 1e-6) : [];
+  const scratch = { ...state, roads: cloneRoads(roadsOf(state)) }, priced = rulesFor(state).buildCostsEnabled;
+  const legsIn = shape === 'curve' ? [pts] : pts.slice(1).map((p, i) => [pts[i], p]);
+  const out = { style, shape, width: DEFS[style]?.road.width, cost: 0, length: 0, polyline: [], legs: [], segmentIds: [], nodeIds: [] };
+  if (pts.length < 2) return { ok: false, reason: 'tooShort', ...out };
+  for (let i = 0; i < legsIn.length; i++) {
+    const plan = planRoad(scratch, { points: legsIn[i], style, snap });
+    out.legs.push(plan); out.polyline.push(...(out.polyline.length ? (plan.polyline || []).slice(1) : plan.polyline || []));
+    if (!plan.ok) return { ...out, ok: false, reason: plan.reason, at: plan.at, blocker: plan.blocker, failedLeg: i, cost: out.cost + (plan.cost || 0), length: out.length + (plan.length || 0), grade: maxGrade(state, out.polyline), start: out.legs[0].start, end: plan.end };
+    const made = applyRoad(scratch, { ...plan, paid: priced ? plan.cost : 0 });
+    out.cost += plan.cost; out.length += plan.length; out.segmentIds.push(...made.segmentIds); out.nodeIds.push(...made.nodeIds);
+  }
+  // segments a later leg split are replaced by their halves: keep only ids that still exist
+  const live = scratch.roads.segments; out.segmentIds = out.segmentIds.filter(id => live[id]);
+  return { ...out, ok: true, grade: maxGrade(state, out.polyline), roads: scratch.roads, start: out.legs[0].start, end: out.legs.at(-1).end };
 }
