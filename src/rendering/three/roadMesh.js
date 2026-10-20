@@ -26,12 +26,19 @@ export function createRoadBatch() {
 }
 
 const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
-/** Unit XZ tangents of a polyline (averaged at inner points so joints stay seamless). */
+/**
+ * Unit XZ tangents of a polyline. At inner points the tangent bisects the two neighbouring directions and carries a
+ * mitre scale `m` (1 / cos of half the turn), so offset edges stay parallel at the right distance: no gaps, no overlaps
+ * at bends (a 90° corner gets a square outer corner).
+ */
 function tangents(pts) {
-  const out = [];
+  const out = [], dir = (a, b) => { const t = v3(b.x - a.x, 0, b.z - a.z); return t.lengthSq() < 1e-12 ? null : t.normalize(); };
   for (let i = 0; i < pts.length; i++) {
-    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
-    const t = v3(b.x - a.x, 0, b.z - a.z); if (t.lengthSq() < 1e-12) t.set(1, 0, 0); out.push(t.normalize());
+    const tin = i > 0 ? dir(pts[i - 1], pts[i]) : null, tout = i < pts.length - 1 ? dir(pts[i], pts[i + 1]) : null;
+    const t = tin && tout ? tin.clone().add(tout) : (tin || tout || v3(1, 0, 0)).clone();
+    if (t.lengthSq() < 1e-12) t.copy(tin || v3(1, 0, 0)); t.normalize();
+    t.m = tin && tout ? Math.min(2.5, 1 / Math.max(.4, t.dot(tin))) : 1;
+    out.push(t);
   }
   return out;
 }
@@ -45,7 +52,7 @@ function strip(pts, tans, o0, o1, h, { walls = false, uScale = 1, vOffset = 0 } 
   const rows = [];
   for (let i = 0; i < pts.length; i++) {
     if (i) s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
-    const t = tans[i], n = v3(-t.z, 0, t.x), p = pts[i];
+    const t = tans[i], n = v3(-t.z, 0, t.x).multiplyScalar(t.m || 1), p = pts[i];
     const L = v3(p.x + n.x * o1, 0, p.z + n.z * o1), R = v3(p.x + n.x * o0, 0, p.z + n.z * o0), y = p.y + h;
     const row = { l: push(L, y, 0, s), r: push(R, y, (o1 - o0) * uScale, s) };
     if (walls) { row.lb = push(L, p.y, 0, s); row.lt = push(L, y, h, s); row.rb = push(R, p.y, 0, s); row.rt = push(R, y, h, s); }
@@ -139,12 +146,12 @@ export function addPad(batch, c, width, look, dirs) {
   const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * width, uv.getY(i) * width);
   batch.add(L.surface(), g);
   if (!L.edge) return;
-  // border arcs between the roads that leave the junction
-  const angs = dirs.map(d => Math.atan2(d.z, d.x)).sort((a, b) => a - b), gap = Math.asin(Math.min(1, .5)) + .15;
-  const N = 32;
+  // border arcs between the roads that leave the junction; each road leaves a gap as wide as itself
+  const exits = dirs.map(d => ({ a: Math.atan2(d.z, d.x), gap: Math.asin(Math.min(.98, (d.hw ?? hw * .8) / hw)) }));
+  const N = 48;
   for (let i = 0; i < N; i++) {
     const a0 = i / N * Math.PI * 2, a1 = (i + 1) / N * Math.PI * 2, mid = (a0 + a1) / 2;
-    if (angs.some(a => Math.abs(Math.atan2(Math.sin(mid - a), Math.cos(mid - a))) < gap)) continue;
+    if (exits.some(e => Math.abs(Math.atan2(Math.sin(mid - e.a), Math.cos(mid - e.a))) < e.gap)) continue;
     const r = hw - L.edge.w / 2, p = v3(c.x + Math.cos(a0) * r, c.y, c.z + Math.sin(a0) * r), q = v3(c.x + Math.cos(a1) * r, c.y, c.z + Math.sin(a1) * r);
     batch.add(L.edge.mat(), strip([p, q], tangents([p, q]), -L.edge.w / 2, L.edge.w / 2, lift + L.edge.h, { walls: true }), true);
   }

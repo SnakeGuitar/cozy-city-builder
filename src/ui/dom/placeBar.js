@@ -22,15 +22,17 @@ export function createPlaceBar({ interaction, prefs, onChange }) {
     interaction.placementChanged(); onChange(); render();
   });
   function render() {
-    const tool = interaction.tool, show = (tool.kind === 'build' || tool.kind === 'move') && !isRoadType(tool.type);
+    const tool = interaction.tool, show = tool.kind === 'build' || tool.kind === 'move', roadTool = show && isRoadType(tool.type);
     const p = prefs(), free = p.mode === 'free';
-    const key = show ? JSON.stringify([p, tool.kind, free ? deg(tool.rot) : tool.r, !!interaction.pending]) + t('pm_grid') : '';
+    const key = show ? JSON.stringify([p, tool.kind, tool.type, free ? deg(tool.rot) : tool.r, !!interaction.pending]) + t('pm_grid') : '';
     if (key === last) return; last = key;
     el.hidden = !show; if (!show) { el.innerHTML = ''; return; }
     const on = (cond) => cond ? 'on' : '';
     el.innerHTML = `<div class="pb-seg" role="group" aria-label="${t('placeMode')}">
-        <button class="${on(!free)}" data-pm="grid" aria-pressed="${!free}">${ico('i-grid')}${t('pm_grid')}</button>
-        <button class="${on(free)}" data-pm="free" aria-pressed="${free}">${ico('i-free')}${t('pm_free')}</button></div>
+        <button class="${on(!free)}" data-pm="grid" aria-pressed="${!free}">${ico('i-grid')}${t(roadTool ? 'pm_cells' : 'pm_grid')}</button>
+        <button class="${on(free)}" data-pm="free" aria-pressed="${free}">${ico('i-free')}${t(roadTool ? 'pm_draw' : 'pm_free')}</button></div>
+      ${roadTool ? `${free ? `<div class="pb-group"><button class="pb-chip ${on(p.snapGrid)}" data-snap="snapGrid" aria-pressed="${p.snapGrid}">${t('snap_grid')}</button></div>` : ''}
+        ${interaction.pending ? `<div class="pb-group"><button class="pb-ok" id="pb-ok">✓ ${t('buildRoad')}</button><button class="pb-no" id="pb-no" aria-label="${t('cancel')}">✕</button></div>` : ''}` : `
       ${free ? `<div class="pb-group" role="group" aria-label="${t('snaps')}">
         <button class="pb-chip ${on(p.snapGrid)}" data-snap="snapGrid" aria-pressed="${p.snapGrid}">${t('snap_grid')}</button>
         <button class="pb-chip ${on(p.snapRoad)}" data-snap="snapRoad" aria-pressed="${p.snapRoad}">${t('snap_road')}</button>
@@ -39,7 +41,7 @@ export function createPlaceBar({ interaction, prefs, onChange }) {
       <div class="pb-group"><button class="pb-ico" data-rot="-1" title="${t('turnL')}" aria-label="${t('turnL')}">${ico('i-rl')}</button>
         <span class="pb-angle">${free ? deg(tool.rot) : tool.r * 90}°</span>
         <button class="pb-ico" data-rot="1" title="${t('turnR')}" aria-label="${t('turnR')}">${ico('i-rr')}</button></div>
-      ${interaction.pending ? `<div class="pb-group"><button class="pb-ok" id="pb-ok">✓ ${t('placeHere')}</button><button class="pb-no" id="pb-no" aria-label="${t('cancel')}">✕</button></div>` : ''}`;
+      ${interaction.pending ? `<div class="pb-group"><button class="pb-ok" id="pb-ok">✓ ${t('placeHere')}</button><button class="pb-no" id="pb-no" aria-label="${t('cancel')}">✕</button></div>` : ''}`}`;
   }
   return { render };
 }

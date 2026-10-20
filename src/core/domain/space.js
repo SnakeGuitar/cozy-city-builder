@@ -9,6 +9,7 @@
 import { DEFS, isRoadType } from '../config/catalog.js';
 import { GRID_SIZE } from '../config/world.js';
 import { createBuilding } from './state.js';
+import { roadHitsObb, onRoad } from './roads.js';
 import { makeObb, obbAabb, obbOverlap, obbCorners, normAngle, quarterToAngle, cosSin, lotDistance, pointInObb, QUARTER } from './geometry.js';
 
 export const CELL = 1;                       // one grid cell, in world units
@@ -79,7 +80,7 @@ export function overlapping(state, o, ignoreId = 0) {
   return out;
 }
 /**
- * null when `type` fits at the pose; otherwise why not: 'outside' (off the map), 'blocked' (overlaps a building),
+ * null when `type` fits at the pose; otherwise why not: 'outside' (off the map), 'blocked' (overlaps a building), 'road' (on a road),
  * or a terrain reason from `terrainCheck` (set by the terrain module). `ignoreId` is the building being moved.
  */
 export function canPlace(state, type, position, rotation, ignoreId = 0) {
@@ -87,6 +88,7 @@ export function canPlace(state, type, position, rotation, ignoreId = 0) {
   const o = obbFor(type, position, rotation);
   if (!insideMap(state, o)) return 'outside';
   if (overlapping(state, o, ignoreId).length) return 'blocked';
+  if (!isRoadType(type) && roadHitsObb(state, o)) return 'road';
   return placementHooks.terrain ? placementHooks.terrain(state, type, o) : null;
 }
 /** Extension points filled by other core modules (terrain), so this module stays small and free of cycles. */
@@ -98,8 +100,8 @@ export function buildingAtPoint(state, x, z) {
   for (let i = ids.length - 1; i >= 0; i--) { const b = state.buildings[ids[i]]; if (b && pointInObb(footprintObb(b.type, b.position, b.rotation), x, z, EPS)) return b; }
   return null;
 }
-/** Is there a road under this ground point? */
-export function roadAt(state, x, z) { const b = buildingAtPoint(state, x, z); return !!b && isRoadType(b.type); }
+/** Is there a road under this ground point (a road of the graph or a legacy road cell)? */
+export function roadAt(state, x, z) { if (onRoad(state, x, z)) return true; const b = buildingAtPoint(state, x, z); return !!b && isRoadType(b.type); }
 
 /**
  * Rotation that turns the front toward the side with most road, among the four quarter turns of `fallback`'s frame.

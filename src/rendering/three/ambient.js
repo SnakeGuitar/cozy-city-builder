@@ -3,8 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { C, T } from './art.js';
-import { GRID_SIZE } from '../../core/config/world.js';
-import { tileCenter } from './coords.js';
+import { createWalkers } from '../../presentation/walkers.js';
 
 const walkerMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 const walkerGeos = [[C.lemonD, '#5b3e2c'], [C.teal, '#e0b066'], [C.limeD, '#3f2e24'], [C.navy, '#8a5a3a'], [C.pink, '#5b3e2c'], [C.clay, '#c7a46a']].map(([dress, hair]) => {
@@ -14,8 +13,8 @@ const walkerGeos = [[C.lemonD, '#5b3e2c'], [C.teal, '#e0b066'], [C.limeD, '#3f2e
 const PUFF_MAX = 160, PETALS = 60;
 
 /** `focus` is a Vector3 kept at the camera's point of interest (petals drift around it). */
-export function createAmbient(scene, focus) {
-  const walkers = [], puffs = [];
+export function createAmbient(scene, focus, groundAt = () => 0) {
+  const walkers = [], puffs = [], walkerModel = createWalkers(Math.random);
   const petals = new THREE.InstancedMesh(new THREE.PlaneGeometry(.06, .04), new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), PETALS);
   const pState = [], pcol = [C.white, '#fff4dc', C.leafL, C.leaf, C.lemon, C.lime].map(c => new THREE.Color(c));
   for (let i = 0; i < PETALS; i++) { pState.push({ p: new THREE.Vector3((Math.random() - .5) * 26, Math.random() * 4, (Math.random() - .5) * 26), r: new THREE.Euler(Math.random() * 6, Math.random() * 6, 0), sp: .5 + Math.random(), ph: Math.random() * 6 }); petals.setColorAt(i, pcol[i % pcol.length]); }
@@ -31,27 +30,12 @@ export function createAmbient(scene, focus) {
   function dust(pos, s) { for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; puff(pos.clone().add(new THREE.Vector3(Math.cos(a) * s * .5, .05, Math.sin(a) * s * .5)), { vx: Math.cos(a) * .5, vz: Math.sin(a) * .5, vy: .15, life: .8, s0: .15, grow: .4, a: .7, color: '#efe2c6' }); } }
   function confetti() { const c = focus.clone(); for (let i = 0; i < 26; i++) puff(c.clone().add(new THREE.Vector3((Math.random() - .5) * 4, 1 + Math.random() * 2, (Math.random() - .5) * 4)), { color: [C.lemon, C.lime, C.white, C.leaf][i % 4], vy: .3, vx: (Math.random() - .5) * .6, life: 1.6, s0: .12, grow: .1, a: .9 }); }
 
-  function pickNext(w, reach) {
-    const [x, y] = w.cur, opts = [];
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < GRID_SIZE && ny < GRID_SIZE && reach[ny * GRID_SIZE + nx]) opts.push([nx, ny]); }
-    const fwd = opts.filter(o => !w.prev || o[0] !== w.prev[0] || o[1] !== w.prev[1]);
-    const c = fwd.length ? fwd : opts; return c.length ? c[Math.floor(Math.random() * c.length)] : w.cur;
-  }
-  /** Walkers represent activity: their number follows population; they only walk on roads linked to the café. */
-  function updateWalkers(sdt, population, roads) {
-    const { reach, mainRoads } = roads;
-    const want = mainRoads.length > 1 ? Math.min(36, Math.ceil(population * .5)) : 0;
-    while (walkers.length < want) { const m = new THREE.Mesh(walkerGeos[walkers.length % walkerGeos.length], walkerMat); m.castShadow = true; scene.add(m); walkers.push({ m, cur: null, v: .35 + Math.random() * .25, lane: Math.random() < .5 ? -.27 : .27, t: 0, ph: Math.random() * 6, rest: 0 }); }
-    while (walkers.length > want) scene.remove(walkers.pop().m);
-    for (const w of walkers) {
-      if (!w.cur || !reach[w.cur[1] * GRID_SIZE + w.cur[0]] || !reach[w.nxt[1] * GRID_SIZE + w.nxt[0]]) { w.cur = mainRoads[Math.floor(Math.random() * mainRoads.length)]; w.prev = null; w.nxt = pickNext(w, reach); w.t = Math.random(); }
-      if (w.rest > 0) w.rest -= sdt; else w.t += sdt * w.v;
-      if (w.t >= 1) { w.t -= 1; w.prev = w.cur; w.cur = w.nxt; w.nxt = pickNext(w, reach); if (Math.random() < .08) w.rest = 1 + Math.random() * 3; }
-      const a = tileCenter(...w.cur), b = tileCenter(...w.nxt), dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
-      w.ph += sdt * 12 * (w.rest > 0 ? 0 : 1);
-      w.m.position.set(a.x + dx * w.t + (-dz / len) * w.lane, .035 + Math.abs(Math.sin(w.ph)) * .012, a.z + dz * w.t + (dx / len) * w.lane);
-      if (len > .01) w.m.rotation.y = Math.atan2(dx, dz);
-    }
+  /** Walkers follow the café's road graph (presentation/walkers.js); this only draws them. */
+  function updateWalkers(sdt, population, roads, state) {
+    const poses = walkerModel.update(state, roads.mainSegments, population, sdt);
+    while (walkers.length < poses.length) { const m = new THREE.Mesh(walkerGeos[walkers.length % walkerGeos.length], walkerMat); m.castShadow = true; scene.add(m); walkers.push({ m }); }
+    while (walkers.length > poses.length) scene.remove(walkers.pop().m);
+    poses.forEach((p, i) => { const m = walkers[i].m; m.position.set(p.x, groundAt(p.x, p.z) + .035 + p.step * .012, p.z); m.rotation.y = p.heading; });
   }
   function updatePuffs(dt) {
     for (const q of puffs) { if (!q.alive) continue; q.t += dt; if (q.t > q.life) { q.alive = false; q.s.visible = false; continue; }
@@ -68,5 +52,5 @@ export function createAmbient(scene, focus) {
     }
     petals.instanceMatrix.needsUpdate = true;
   }
-  return { puff, dust, confetti, update(rdt, sdt, clock, population, roads) { updateWalkers(sdt, population, roads); updatePuffs(rdt); updatePetals(rdt, clock); } };
+  return { puff, dust, confetti, update(rdt, sdt, clock, population, roads, state) { updateWalkers(sdt, population, roads, state); updatePuffs(rdt); updatePetals(rdt, clock); } };
 }

@@ -1,6 +1,6 @@
 // The Three.js view: a facade over scene, camera rig, building views, roads, ambient life and overlays.
 // It reacts to core events and snapshots and draws the camera state it is given; it never changes game state.
-import { DEFS, isRoadType } from '../../core/config/catalog.js';
+import { DEFS } from '../../core/config/catalog.js';
 import { buildingAtPoint } from '../../core/domain/space.js';
 import { windowMat, lampMat } from './art.js';
 import { createScene, applyDayLight } from './scene.js';
@@ -33,8 +33,9 @@ export function createThreeView(container) {
     applyEvents(events, state) {
       let roadsDirty = false, gridDirty = false;
       for (const e of events) {
-        if (e.type === 'building_placed') { gridDirty = true; if (isRoadType(e.buildingType)) roadsDirty = true; else buildings.add(state.buildings[e.id]); }
-        else if (e.type === 'building_removed') { gridDirty = true; if (isRoadType(e.buildingType)) roadsDirty = true; else buildings.remove(e.id, true); }
+        if (e.type === 'building_placed') { gridDirty = true; buildings.add(state.buildings[e.id]); }
+        else if (e.type === 'building_removed') { gridDirty = true; buildings.remove(e.id, true); }
+        else if (e.type === 'road_built' || e.type === 'road_removed' || e.type === 'road_edited' || e.type === 'roads_replaced') { roadsDirty = true; if (e.type === 'road_removed') overlays.roadHighlight(null, null); }
         else if (e.type === 'building_moved' || e.type === 'building_rotated') { gridDirty = true; const b = state.buildings[e.id]; if (b) buildings.replace(b, { animate: e.type === 'building_moved' }); }
         else if (e.type === 'building_upgraded') { const b = state.buildings[e.id]; if (b) buildings.upgrade(b); }
         else if (e.type === 'goal_completed') ambient.confetti();
@@ -48,7 +49,7 @@ export function createThreeView(container) {
       const camera = rig.apply(cameraVisual);
       const light = applyDayLight(sc, state.clock.time, { window: windowMat, lamp: lampMat, glow: glowMat }, rig.target);
       night = light.night;
-      ambient.update(rdt, sdt, clock, state.population, derived.roads);
+      ambient.update(rdt, sdt, clock, state.population, derived.roads, state);
       buildings.update(rdt, clock);
       for (const d of sc.decoTrees) for (const c of d.children) if (c.userData.sub === 'sway') c.rotation.z = Math.sin(clock * 1.1 + d.position.x) * .03;
       sc.render(camera);

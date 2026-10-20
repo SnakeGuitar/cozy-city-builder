@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createSaveDocument, loadSave, migrateSave, normalizeGame, serializeGame, SAVE_VERSION, computeDerived } from '../src/core/index.js';
 import { createGame, newGameState } from '../src/application/game.js';
-import { cellOf, idAtCell } from './helpers.mjs';
+import { cellOf, idAtCell, roadCell } from './helpers.mjs';
 
 const fixture = n => JSON.parse(fs.readFileSync(new URL(`./fixtures/${n}`, import.meta.url)));
 
@@ -37,8 +37,12 @@ test('v2 saves load: ids, positions, prefs and progress survive', () => {
   assert.equal(state.coins, 1472.5); assert.equal(state.population, 40.2); assert.equal(state.employed, 23.1);
   assert.deepEqual(state.goalsDone, ['g0', 'g0b', 'g1', 'g2', 'g4'], 'older towns skip the starter goals');
   assert.equal(state.clock.speed, 3); assert.equal(state.clock.day, 2);
-  assert.equal(Object.keys(state.buildings).length, raw.b.length);
-  for (const o of raw.b) { const b = state.buildings[o.id], c = cellOf(state, b); assert.equal(b.type, o.t); assert.equal(c.x, o.x); assert.equal(c.y, o.y); assert.equal(c.r, o.r); assert.equal(b.seed, o.s); }
+  const roads = raw.b.filter(o => o.t === 'road'), others = raw.b.filter(o => o.t !== 'road');
+  assert.equal(Object.keys(state.buildings).length, others.length, 'every building keeps its record');
+  for (const o of others) { const b = state.buildings[o.id], c = cellOf(state, b); assert.equal(b.type, o.t); assert.equal(c.x, o.x); assert.equal(c.y, o.y); assert.equal(c.r, o.r); assert.equal(b.seed, o.s); }
+  assert.equal(Object.keys(state.roads.nodes).length, roads.length, 'every road cell is a node of the network');
+  for (const o of roads) assert.ok(roadCell(state, o.x, o.y), `road cell ${o.x},${o.y}`);
+  assert.equal(Object.keys(state.roads.segments).length, roads.length - 1, 'the straight street is one chain of links');
   assert.equal(state.nextId, 40);
   assert.deepEqual(ui, { newT: ['fire', 'police'], muted: true, tips: true, tut: { moved: true, age: 120, free: 3, city: true }, tab: 'services', filt: { fam: 'jp', era: 'all' }, lang: 'ja', cam: [-3, 4.5, .785, 2.1] });
 });
@@ -46,12 +50,14 @@ test('v2 saves load: ids, positions, prefs and progress survive', () => {
 test('v1 Strawberry Borough saves migrate through v2 to the current version', () => {
   const { state, ui, from, warnings } = loadSave(fixture('save-v1.json'));
   assert.equal(from, 1); assert.deepEqual(warnings, []);
-  const types = Object.values(state.buildings).filter(b => b.type !== 'road').map(b => b.type).sort();
+  const types = Object.values(state.buildings).map(b => b.type).sort();
   assert.deepEqual(types, ['cafe', 'fr_cont', 'fr_trad', 'fr_trad', 'orchard', 'tree']);
   assert.deepEqual(state.goalsDone, ['g0', 'g0b', 'g1', 'g2'], 'v1 g4 meant something else');
   assert.equal(state.population, 9); assert.equal(state.coins, 777); assert.equal(state.clock.speed, 2);
   assert.equal(ui.lang, 'en');
-  assert.deepEqual(Object.keys(state.buildings).map(Number).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  // v1 ids 1–10 numbered roads and buildings together: the buildings keep theirs, the four road cells became nodes
+  assert.deepEqual(Object.keys(state.buildings).map(Number).sort((a, b) => a - b), [5, 6, 7, 8, 9, 10]);
+  assert.equal(Object.keys(state.roads.nodes).length, 4);
   const chain = migrateSave(fixture('save-v1.json'));
   assert.equal(chain.doc.v, SAVE_VERSION);
 });

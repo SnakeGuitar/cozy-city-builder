@@ -51,7 +51,7 @@ test('normal and sandbox use separate slots and never share economy or buildings
   app.continueGame();
   const s = app.game.getSnapshot().state;
   assert.equal(s.mode, 'normal'); assert.equal(s.coins, normalCoins);
-  assert.deepEqual(Object.values(s.buildings).map(b => b.type).sort(), ['cafe', 'road']);
+  assert.deepEqual(Object.values(s.buildings).map(b => b.type), ['cafe']); assert.equal(Object.keys(s.roads.nodes).length, 1, 'and its road');
   app.toMainMenu(); app.openSandbox();
   assert.deepEqual(Object.values(app.game.getSnapshot().state.buildings).map(b => b.type).sort(), ['cafe', 'school'], 'sandbox reopens');
 });
@@ -80,7 +80,8 @@ test('old saves continue from the menu without losing buildings', () => {
   const v2 = JSON.parse(JSON.stringify((await_v2())));
   const storage = memory({ [SLOTS.normal]: JSON.stringify(v2) }), app = createApp({ storage });
   assert.ok(app.hasSave('normal')); assert.ok(app.continueGame());
-  assert.equal(Object.keys(app.game.getSnapshot().state.buildings).length, v2.b.length);
+  const s = app.game.getSnapshot().state;
+  assert.equal(Object.keys(s.buildings).length + Object.keys(s.roads.nodes).length, v2.b.length, 'buildings and road cells');
 });
 import fs from 'node:fs';
 function await_v2() { return JSON.parse(fs.readFileSync(new URL('./fixtures/save-v2.json', import.meta.url))); }

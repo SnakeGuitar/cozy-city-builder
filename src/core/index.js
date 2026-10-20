@@ -5,6 +5,8 @@ export * from './domain/geometry.js';
 export * from './domain/space.js';
 export * from './domain/snap.js';
 export * from './domain/roadQuery.js';
+export * from './domain/roads.js';
+export * from './domain/roadPlan.js';
 export * from './simulation/index.js';
 export * from './goals/goals.js';
 export * from './commands/commands.js';

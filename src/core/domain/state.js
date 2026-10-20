@@ -6,6 +6,7 @@
 import { DEFS, LANDMARK, tierStats, maxTierOf } from '../config/catalog.js';
 import { NEW_GAME } from '../config/world.js';
 import { MODES } from '../config/rules.js';
+import { createRoads } from './roads.js';
 
 export function createEmptyState(overrides = {}) {
   return {
@@ -15,6 +16,7 @@ export function createEmptyState(overrides = {}) {
     goalsDone: [], nextId: 1, rngSeed: 1,
     tutorial: { step: 'done', signals: [] }, // core/tutorial: current step id and front-end signals seen
     buildings: {},                       // id -> building record
+    roads: createRoads(),                // road graph: nodes and segments (domain/roads.js)
     spatial: {},                         // derived spatial hash (domain/space.js); never saved
     ...overrides,
   };

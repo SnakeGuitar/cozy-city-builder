@@ -7,19 +7,23 @@
 //   v6 — continuous coordinates: buildings store position { x, z } (world units, map centred on the origin) and
 //        rotation (radians) instead of grid cell x, y and quarter turn r. The migration reproduces each building's
 //        drawn position exactly: x = cell x − 12 + s / 2, z = cell y − 12 + s / 2, rotation = r · π/2 (24-cell maps).
+//   v7 — roads are a graph (game.roads: nodes, segments with control points, width and style). Road cells that
+//        were stored as buildings become nodes at their cell centres joined to their four neighbours, as the grid
+//        street tool builds them; each keeps its style, width and price. Building ids do not change.
 //
 // Repair policy: saves up to v3 always had a café, so one without it is damaged and the café is restored.
 // From v4 an empty map (no café yet) is a normal new game and is never "repaired".
-import { DEFS, LANDMARK, maxTierOf } from '../config/catalog.js';
+import { DEFS, LANDMARK, maxTierOf, isRoadType } from '../config/catalog.js';
 import { GOALS } from '../config/goals.js';
 import { SPEEDS } from '../config/world.js';
 import { MODES } from '../config/rules.js';
 import { TUTORIAL_STEPS } from '../tutorial/tutorial.js';
 import { canPlace, insertBuilding, tileToPose, reindex } from '../domain/space.js';
 import { normAngle, quarterToAngle } from '../domain/geometry.js';
+import { createRoads, tilesToGraph, listNodes, listSegments } from '../domain/roads.js';
 import { createEmptyState, listBuildings } from '../domain/state.js';
 import { clamp } from '../util/math.js';
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 const LEGACY_MAP = 24; // every map before v6 was 24 × 24 cells
 // v1 (Strawberry Borough) building ids → current ids
 export const LEGACY_TYPES = Object.freeze({ houseA: 'fr_trad', houseB: 'fr_trad', houseC: 'fr_cont' });
@@ -32,7 +36,16 @@ export function serializeGame(state) {
     coins: state.coins, population: state.population, employed: state.employed, demand: { ...state.demand },
     clock: { time: state.clock.time, day: state.clock.day, speed: state.clock.speed }, goalsDone: [...state.goalsDone],
     nextId: state.nextId, rngSeed: state.rngSeed,
+    roads: serializeRoads(state),
     buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, position: { x: b.position.x, z: b.position.z }, rotation: b.rotation, seed: b.seed, well: b.well, open: b.open })),
+  };
+}
+export function serializeRoads(state) {
+  const r = state.roads || createRoads();
+  return {
+    nodes: listNodes(state).map(n => ({ id: n.id, position: { x: n.position.x, z: n.position.z }, ...(n.width ? { width: n.width, style: n.style } : {}), ...(n.paid ? { paid: n.paid } : {}) })),
+    segments: listSegments(state).map(s => ({ id: s.id, startNodeId: s.startNodeId, endNodeId: s.endNodeId, controlPoints: s.controlPoints.map(p => ({ x: p.x, z: p.z })), width: s.width, style: s.style, oneWay: !!s.oneWay, paid: s.paid || 0 })),
+    nextNodeId: r.nextNodeId, nextSegmentId: r.nextSegmentId,
   };
 }
 export const createSaveDocument = (state, ui = {}) => ({ v: SAVE_VERSION, mode: state.mode, game: serializeGame(state), ui });
@@ -63,6 +76,15 @@ const MIGRATIONS = {
     if (!d.game || typeof d.game !== 'object') throw new Error('v4 save without game data');
     const list = Array.isArray(d.game.buildings) ? d.game.buildings : [];
     return { ...d, v: 5, game: { ...d.game, buildings: list.map(b => (b && typeof b === 'object' ? { ...b, tier: 1 } : b)) } };
+  },
+  6: d => {
+    if (!d.game || typeof d.game !== 'object') throw new Error('v6 save without game data');
+    const list = Array.isArray(d.game.buildings) ? d.game.buildings : [];
+    const cells = list.filter(b => b && typeof b === 'object' && isRoadType(LEGACY_TYPES[b.type] || b.type) && b.position).sort((a, b) => (a.id || 0) - (b.id || 0));
+    const tmp = { roads: createRoads() };
+    // each cell was bought at its street's price
+    tilesToGraph(tmp, cells.map(b => ({ style: b.type, width: Math.min(1, DEFS[b.type].road.width), position: b.position, paid: DEFS[b.type].cost })));
+    return { ...d, v: 7, game: { ...d.game, buildings: list.filter(b => !cells.includes(b)), roads: serializeRoads(tmp) } };
   },
   5: d => {
     if (!d.game || typeof d.game !== 'object') throw new Error('v5 save without game data');
@@ -111,11 +133,12 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     rngSeed: int(g.rngSeed, 0x5eed1e, 0, 0xffffffff),
   });
   const list = Array.isArray(g.buildings) ? g.buildings : (warn('buildings missing'), []);
-  const usedIds = new Set(), pending = [];
+  const usedIds = new Set(), pending = [], strayCells = [];
   for (const raw of list) {
     if (!raw || typeof raw !== 'object') { warn('building entry is not an object'); continue; }
     const type = LEGACY_TYPES[raw.type] || raw.type;
     if (!DEFS[type]) { warn(`unknown building type ${raw.type}`); continue; }
+    if (isRoadType(type)) { const src0 = raw.position === undefined && raw.x !== undefined ? legacyToPose({ ...raw, type }) : raw; if (src0.position && Number.isFinite(src0.position.x) && Number.isFinite(src0.position.z)) strayCells.push({ style: type, width: Math.min(1, DEFS[type].road.width), position: { ...src0.position } }); continue; }
     const src = raw.position === undefined && raw.x !== undefined ? legacyToPose({ ...raw, type }) : raw; // defensive: grid fields in a v6 document
     const pos = src.position;
     if (!pos || typeof pos !== 'object' || !Number.isFinite(pos.x) || !Number.isFinite(pos.z)) { warn(`${type}: bad coordinates`); continue; }
@@ -135,11 +158,37 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     const b = insertBuilding(state, p.type, p, p.seed, p.id || state.nextId, p.tier);
     b.well = p.well; b.open = p.open;
   }
+  state.roads = normalizeRoads(g.roads, warn);
+  // road cells found among buildings (damaged or hand-edited documents) join the network instead of vanishing
+  if (strayCells.length) { tilesToGraph(state, strayCells); warn(`${strayCells.length} road cells moved from buildings to the road network`); }
   if (repairLandmark && !Object.values(state.buildings).some(b => b.type === LANDMARK)) {
     const spot = LANDMARK_SPOTS.map(([x, y]) => tileToPose(state, LANDMARK, x, y, 0)).find(p => !canPlace(state, LANDMARK, p.position, p.rotation));
     if (spot) { insertBuilding(state, LANDMARK, spot, 1); warn('café was missing and has been restored'); }
   }
   return { state: reindex(state), warnings };
+}
+
+/** Validates an untrusted road network: drops bad nodes and segments (and segments whose ends are gone). */
+export function normalizeRoads(raw, warn = () => {}) {
+  const roads = createRoads(), r = raw && typeof raw === 'object' ? raw : {};
+  const finite = p => p && typeof p === 'object' && Number.isFinite(p.x) && Number.isFinite(p.z) && Math.abs(p.x) < 1e4 && Math.abs(p.z) < 1e4;
+  for (const n of Array.isArray(r.nodes) ? r.nodes : []) {
+    if (!n || !Number.isInteger(n.id) || n.id < 1 || roads.nodes[n.id] || !finite(n.position)) { warn('road node dropped'); continue; }
+    const node = { id: n.id, position: { x: n.position.x, z: n.position.z } };
+    if (n.width !== undefined) { if (Number.isFinite(n.width) && n.width > 0 && n.width <= 3 && isRoadType(n.style)) { node.width = n.width; node.style = n.style; } else warn(`road node ${n.id}: bad pad`); }
+    if (Number.isFinite(n.paid) && n.paid > 0) node.paid = n.paid;
+    roads.nodes[n.id] = node;
+  }
+  for (const s of Array.isArray(r.segments) ? r.segments : []) {
+    if (!s || !Number.isInteger(s.id) || s.id < 1 || roads.segments[s.id] || !roads.nodes[s.startNodeId] || !roads.nodes[s.endNodeId] || s.startNodeId === s.endNodeId) { warn('road segment dropped'); continue; }
+    const style = isRoadType(s.style) ? s.style : (warn(`road segment ${s.id}: style reset`), 'road');
+    const cps = (Array.isArray(s.controlPoints) ? s.controlPoints : []).filter(finite).slice(0, 16).map(p => ({ x: p.x, z: p.z }));
+    roads.segments[s.id] = { id: s.id, startNodeId: s.startNodeId, endNodeId: s.endNodeId, controlPoints: cps,
+      width: Number.isFinite(s.width) && s.width >= .2 && s.width <= 3 ? s.width : DEFS[style].road.width, style, oneWay: s.oneWay === true, paid: Number.isFinite(s.paid) && s.paid >= 0 ? s.paid : 0 };
+  }
+  const maxN = Math.max(0, ...Object.keys(roads.nodes).map(Number)), maxS = Math.max(0, ...Object.keys(roads.segments).map(Number));
+  roads.nextNodeId = Math.max(int(r.nextNodeId, 1, 1), maxN + 1); roads.nextSegmentId = Math.max(int(r.nextSegmentId, 1, 1), maxS + 1);
+  return roads;
 }
 
 /**

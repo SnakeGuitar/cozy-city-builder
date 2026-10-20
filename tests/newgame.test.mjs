@@ -21,7 +21,7 @@ test('zero buildings and zero roads are safe: finite numbers, honest reasons, no
   const g = createGame({ state: newGameState('normal') });
   for (let i = 0; i < 120; i++) g.tick();
   const { state, derived } = g.getSnapshot(), c = derived.city;
-  assert.equal(derived.roads.mainRoads.length, 0); assert.ok(derived.roads.reach.every(v => v === 0));
+  assert.equal(derived.roads.mainNodes.length, 0); assert.equal(derived.roads.mainSegments.length, 0);
   assert.equal(derived.hasCafe, false); assert.equal(derived.empty, true);
   const nums = JSON.stringify(c).match(/-?\d+(\.\d+)?(e-?\d+)?|NaN|Infinity/g);
   assert.ok(!/NaN|Infinity/.test(JSON.stringify(c)), 'no NaN or Infinity'); assert.ok(nums.length > 10);
@@ -32,15 +32,15 @@ test('zero buildings and zero roads are safe: finite numbers, honest reasons, no
 
 test('the first café: free, unique, and the root of the road network', () => {
   const g = createGame({ state: newGameState('normal') });
-  assert.equal(computeDerived(g.getSnapshot().state).roads.mainRoads.length, 0);
+  assert.equal(computeDerived(g.getSnapshot().state).roads.mainNodes.length, 0);
   assert.ok(place(g, 'road', 10, 13).ok, 'a road may exist before the café');
-  assert.equal(g.getSnapshot().derived.roads.mainRoads.length, 0, 'but it is not a main road yet');
+  assert.equal(g.getSnapshot().derived.roads.mainNodes.length, 0, 'but it is not a main road yet');
   assert.ok(place(g, 'fr_trad', 10, 14).ok);
   const house = () => Object.values(g.getSnapshot().derived.byId).find(b => b.type === 'fr_trad');
   assert.equal(house().conn, false);
   const res = place(g, 'cafe', 10, 11);
   assert.ok(res.ok); assert.equal(g.getSnapshot().state.coins, 600 - 5 - 110 + 50 + 50, 'café costs 0; g0 and g0b pay 50 each');
-  assert.equal(g.getSnapshot().derived.roads.mainRoads.length, 1);
+  assert.equal(g.getSnapshot().derived.roads.mainNodes.length, 1);
   assert.equal(house().conn, true, 'house → road → café');
   assert.equal(place(g, 'cafe', 2, 2).reason, 'unique', 'a second café is refused');
   assert.equal(Object.values(g.getSnapshot().state.buildings).filter(b => b.type === 'cafe').length, 1);

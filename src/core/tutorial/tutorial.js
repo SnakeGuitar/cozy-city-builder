@@ -10,7 +10,7 @@ const homes = d => Object.values(d.byId).filter(r => r.kind === 'house');
 export const TUTORIAL_STEPS = Object.freeze([
   { id: 'explore', message: 'm_tut_explore', mood: 'wave', done: s => s.tutorial.signals.includes('camera_moved') },
   { id: 'place_cafe', message: 'm_tut_cafe', mood: 'point', done: s => Object.values(s.buildings).some(b => b.type === LANDMARK) },
-  { id: 'first_road', message: 'm_tut_road', mood: 'point', done: (s, d) => d.roads.mainRoads.length > 0 },
+  { id: 'first_road', message: 'm_tut_road', mood: 'point', done: (s, d) => d.roads.mainNodes.length > 0 },
   { id: 'first_home', message: 'm_tut_home', mood: 'happy', done: (s, d) => homes(d).length > 0 },
   { id: 'connect_home', message: 'm_tut_connect', mood: 'think', done: (s, d) => homes(d).some(h => h.conn) },
 ]);

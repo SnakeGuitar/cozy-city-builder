@@ -56,7 +56,7 @@ export function computeDerived(state, { mode = 'snapshot' } = {}) {
   }
   return {
     mode, byId, hasCafe, empty: things.length === 0,
-    roads: { reach: roads.reach, mainRoads: roads.mainRoads },
+    roads: { mainNodes: roads.mainNodes, mainSegments: roads.mainSegments },
     employed: work.employed,
     city: {
       Rcap: housing.capacity, homeless: housing.homeless, vacantHomes: housing.vacantHomes,

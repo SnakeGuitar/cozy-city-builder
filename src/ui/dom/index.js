@@ -1,6 +1,6 @@
 // The DOM front end: wires panels and buttons to the app and reacts to core events.
 // Reads snapshots and rules, sends commands through the interaction controller or game.dispatch; never edits state.
-import { CATS, DEFS, FAMS, ERAS, isRoadType } from '../../core/config/catalog.js';
+import { CATS, DEFS, FAMS, ERAS } from '../../core/config/catalog.js';
 import { GOALS } from '../../core/config/goals.js';
 import { CMD } from '../../core/commands/commands.js';
 import { $, ico, bump } from './dom.js';
@@ -97,7 +97,10 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
     if (!events.length) return;
     const { state } = snap(); let structural = false, tickHappened = false;
     for (const e of events) switch (e.type) {
-      case 'building_placed': structural = true; isRoadType(e.buildingType) ? audio.tick() : audio.place(); if (slot.newT.includes(e.buildingType)) slot.newT = slot.newT.filter(x => x !== e.buildingType); break;
+      case 'building_placed': structural = true; audio.place(); if (slot.newT.includes(e.buildingType)) slot.newT = slot.newT.filter(x => x !== e.buildingType); break;
+      case 'road_built': structural = true; e.cell ? audio.tick() : audio.place(); if (slot.newT.includes(e.style)) slot.newT = slot.newT.filter(x => x !== e.style); break;
+      case 'road_removed': structural = true; audio.remove(); break;
+      case 'road_edited': structural = true; audio.click(); break;
       case 'building_removed': structural = true; audio.remove(); if (e.refund) labels.floater(view.topOf({ type: e.buildingType, position: e.position }, -.45), `${t('refunded', { n: e.refund })} ${ico('i-coin', '')}`, '', 1.4); income.delete(e.id); break;
       case 'building_moved': structural = true; audio.place(); break;
       case 'building_rotated': structural = true; audio.click(); break;

@@ -4,7 +4,8 @@ import { GRID_SIZE } from '../../core/config/world.js';
 import { DEFS, isRoadType } from '../../core/config/catalog.js';
 import { M, T } from './art.js';
 import { getProto } from './models/index.js';
-import { roadPreview } from './roads.js';
+import { roadPreview, roadPlanPreview } from './roads.js';
+import { roadsOf, segmentPolyline, nodeRadius } from '../../core/domain/roads.js';
 import { HALF } from './coords.js';
 import { footprintOf, lotAabb } from '../../core/domain/space.js';
 
@@ -30,7 +31,40 @@ export function createOverlays(scene) {
     o.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .62; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); c.castShadow = false; } if (c.isLineSegments) c.material = ghostEdge; });
     return o;
   }
+  // ---- roads: the plan being drawn (styled ghost over a validity band) and the piece under the demolish cursor
+  const bandMat = new THREE.MeshBasicMaterial({ color: '#5f9a2c', transparent: true, opacity: .4, depthWrite: false });
+  const hiMat = new THREE.MeshBasicMaterial({ color: '#c8553f', transparent: true, opacity: .45, depthWrite: false, depthTest: false });
+  let plan = null, planBand = null, hi = null, hiKey = '';
+  /** A flat band along a polyline (half width hw), y above the ground. */
+  function band(pl, hw, y) {
+    const pos = [], idx = [];
+    pl.forEach((p, i) => { const a = pl[Math.max(0, i - 1)], b = pl[Math.min(pl.length - 1, i + 1)], L = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / L, nz = (b.x - a.x) / L;
+      pos.push(p.x + nx * hw, y, p.z + nz * hw, p.x - nx * hw, y, p.z - nz * hw); if (i) { const k = i * 2; idx.push(k - 2, k, k - 1, k - 1, k, k + 1); } });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); return g;
+  }
+  const disposeGroup = o => { if (!o) return; scene.remove(o); o.traverse(c => { if (c.geometry) c.geometry.dispose(); }); };
+
   return {
+    /** Shows a road plan from core/domain/roadPlan.js while it is drawn; `ok` tints it green or red. */
+    roadPlan(p, ok) {
+      disposeGroup(plan); disposeGroup(planBand); plan = planBand = null;
+      if (!p || !p.polyline || p.polyline.length < 2) return;
+      plan = roadPlanPreview(p); plan.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .7; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); } if (c.isLineSegments) c.material = ghostEdge; });
+      bandMat.color.set(ok ? '#5f9a2c' : '#c8553f');
+      planBand = new THREE.Mesh(band(p.polyline, p.width / 2 + .08, .015), bandMat); planBand.renderOrder = 3;
+      scene.add(planBand); scene.add(plan);
+    },
+    hideRoadPlan() { disposeGroup(plan); disposeGroup(planBand); plan = planBand = null; },
+    /** Highlights a road piece ({ segmentId } | { nodeId }) for demolition, or clears it with null. */
+    roadHighlight(state, piece) {
+      const key = piece ? JSON.stringify(piece) : '';
+      if (key === hiKey) return; hiKey = key; disposeGroup(hi); hi = null;
+      if (!piece || !state) return;
+      const r = roadsOf(state);
+      if (piece.segmentId && r.segments[piece.segmentId]) { const s = r.segments[piece.segmentId]; hi = new THREE.Mesh(band(segmentPolyline(state, s), s.width / 2 + .05, .06), hiMat); }
+      else if (piece.nodeId && r.nodes[piece.nodeId]) { const n = r.nodes[piece.nodeId], w = n.width || nodeRadius(state, n.id) * 2; hi = new THREE.Mesh(new THREE.PlaneGeometry(w + .1, w + .1).rotateX(-Math.PI / 2), hiMat); hi.position.set(n.position.x, .06, n.position.z); }
+      if (hi) { hi.renderOrder = 4; scene.add(hi); }
+    },
     setBuildMode(on) { gridLines.visible = occ.visible = on; },
     /** Occupied ground from the buildings' footprints (rotated as placed). */
     refreshOccupancy(state) {
