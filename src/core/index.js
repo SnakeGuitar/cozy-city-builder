@@ -9,6 +9,7 @@ export * from './domain/roads.js';
 export * from './domain/roadPlan.js';
 export * from './domain/terrain.js';
 export * from './domain/blueprint.js';
+export * from './domain/villa.js';
 export * from './simulation/index.js';
 export * from './goals/goals.js';
 export * from './commands/commands.js';

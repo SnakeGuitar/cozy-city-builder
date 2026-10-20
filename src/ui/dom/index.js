@@ -36,26 +36,41 @@ export function normalizeSlotUi(ui = {}) {
   };
 }
 
-/** `bpThumb(blueprint)` pictures a saved design; `openEditor({ blueprintId? })` opens the building editor. */
-export function createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave, bpThumb = null, openEditor = () => {} }) {
+/** `bpThumb(blueprint)` pictures a saved design; `openEditor({ blueprintId? })` opens the building editor; `villaDialog` saves villas. */
+export function createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave, bpThumb = null, openEditor = () => {}, villaDialog = null }) {
   const game = app.game;
   const labels = createWorldLabels(view);
   const mascot = createMascot(settings);
   const justDone = new Map(), income = new Map();
   const placeBar = createPlaceBar({ interaction, prefs: () => slot.place, onChange: () => requestSave(), history: () => game.roadHistory });
-  let tickCount = 0, lastAfford = '';
+  let tickCount = 0, lastAfford = '', groupConfirm = null; // groupConfirm: 'ungroup' | 'demolish' awaiting a second press
   const snap = () => game.getSnapshot();
   const rules = () => game.rules();
   const activeType = () => ['build', 'move'].includes(interaction.tool.kind) ? interaction.tool.type : null;
 
   // ---------------------------------------------------------------- render helpers
   const hud = () => renderHud(snap(), settings, rules());
-  const catalog = () => renderCatalog(snap(), slot, game.unlocked(), thumbs, interaction.tool.blueprint ? null : activeType(), { bpThumb, activeBlueprint: interaction.tool.kind === 'build' ? interaction.tool.blueprint?.id : null });
+  const catalog = () => renderCatalog(snap(), slot, game.unlocked(), thumbs, interaction.tool.blueprint ? null : activeType(), { bpThumb, activeBlueprint: interaction.tool.kind === 'build' ? interaction.tool.blueprint?.id : interaction.tool.kind === 'placeVilla' ? interaction.tool.villa.id : null });
+  /** Villa actions from the selection panel; ungroup and demolish ask with a second press. */
+  function villaAction(what, id, version) {
+    const g = snap().state.groups[id]; if (!g) return;
+    const run = cmd => { const r = game.dispatch(cmd); if (!r.ok) toast(`${t(r.reason)}${r.itemId ? ` (${t('villaItem', { n: r.itemId })})` : ''}`); return r; };
+    if (what !== 'ungroup' && what !== 'demolish') groupConfirm = null;
+    if (what === 'move') interaction.startMoveGroup(id);
+    else if (what === 'rotate') run({ type: CMD.MoveGroup, id, position: g.position, rotation: g.rotation + Math.PI / 2 });
+    else if (what === 'duplicate') interaction.placeVilla(g.villa, g.rotation);
+    else if (what === 'save') villaDialog?.fromGroup(id);
+    else if (what === 'update') run({ type: CMD.UpdateGroup, id, version });
+    else if (groupConfirm !== what) { groupConfirm = what; panel(); return; }
+    else { groupConfirm = null; run({ type: what === 'ungroup' ? CMD.Ungroup : CMD.DemolishGroup, id }); }
+    panel();
+  }
   const goals = () => renderGoals(snap(), justDone, performance.now(), rules().goalsEnabled);
   const panel = () => renderRoadPanel(snap(), interaction, game.roadHistory, rules()) || renderSelectionPanel(snap(), interaction.selected, interaction.confirmDemo, {
     close: () => interaction.select(0), move: () => interaction.startMove(interaction.selected), rotate: () => interaction.rotate(), demolish: () => interaction.demolishSelected(),
     upgrade: open => { audio.click(); interaction.toggleUpgrade(open); }, confirmUpgrade: () => interaction.confirmUpgrade(),
-    editDesign: id => openEditor({ blueprintId: id }), remodel: (id, version) => { const r = game.dispatch({ type: CMD.Remodel, id, version }); if (!r.ok) toast(t(r.reason)); } }, interaction.upgradeOpen);
+    editDesign: id => openEditor({ blueprintId: id }), remodel: (id, version) => { const r = game.dispatch({ type: CMD.Remodel, id, version }); if (!r.ok) toast(t(r.reason)); },
+    villa: villaAction, groupConfirm }, interaction.upgradeOpen);
   function relations() {
     const s = snap(), id = interaction.selected, links = relationLinks(s, id);
     const anchor = b => view.topOf(b, DEFS[b.type].s > 1 ? -.2 : -.35);
@@ -81,8 +96,11 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
   $('filters').addEventListener('click', e => { const b = e.target.closest('.fchip'); if (!b) return; if (b.dataset.fam) slot.filt.fam = b.dataset.fam; if (b.dataset.era) slot.filt.era = b.dataset.era; audio.click(); catalog(); requestSave(); });
   $('items').addEventListener('click', e => {
     const ed = e.target.closest('[data-editbp]'); if (ed) { audio.click(); openEditor({ blueprintId: ed.dataset.editbp }); return; }
+    const ev = e.target.closest('[data-editvilla]'); if (ev) { audio.click(); villaDialog?.edit(ev.dataset.editvilla); return; }
     const it = e.target.closest('.item'); if (!it) return; audio.init();
     if (it.dataset.newbp) { audio.click(); openEditor({}); return; }
+    if (it.dataset.newvilla) { audio.click(); interaction.captureVilla(); return; }
+    if (it.dataset.villa) { audio.click(); if (interaction.tool.kind === 'placeVilla' && interaction.tool.villa.id === it.dataset.villa) interaction.setTool({ kind: 'select' }); else interaction.placeVilla({ id: it.dataset.villa }); return; }
     if (it.dataset.bp) {
       const bp = snap().state.blueprints[it.dataset.bp]; if (!bp) return;
       const v = bp.versions[bp.latest]; if (!game.unlocked().has(v.baseType)) { toast(`${ico('i-lock')} ${t('locked')} · ${t('n_' + v.baseType)}`); return; }
@@ -118,7 +136,11 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
       case 'building_moved': structural = true; audio.place(); break;
       case 'building_rotated': structural = true; audio.click(); break;
       case 'building_remodeled': structural = true; audio.upgrade(); toast(`${ico('i-up')} ${t('ed_remodeled', { n: e.blueprint.version })}`); break;
-      case 'blueprint_saved': case 'blueprint_deleted': catalog(); panel(); requestSave(); break;
+      case 'blueprint_saved': case 'blueprint_deleted': case 'villa_saved': case 'villa_deleted': catalog(); panel(); requestSave(); break;
+      case 'villa_placed': structural = true; audio.place(); toast(`${ico('i-home')} ${t('villaPlaced')}${e.cost ? ` · −${e.cost} ${ico('i-coin', '')}` : ''}`); break;
+      case 'group_moved': case 'group_updated': structural = true; audio.place(); break;
+      case 'group_removed': structural = true; audio.remove(); if (e.refund) toast(t('refunded', { n: e.refund })); break;
+      case 'group_ungrouped': structural = true; audio.click(); toast(t('ungrouped')); break;
       case 'building_upgraded': { structural = true; audio.upgrade(); const b = state.buildings[e.id]; if (b) labels.floater(view.topOf(b, .3), `${'★'.repeat(e.toTier)} ${t('tierN', { n: e.toTier, m: DEFS[e.buildingType].tiers.length })}`, 'well', 2.2); toast(`${ico('i-up')} ${t('upgraded', { b: t('n_' + e.buildingType), n: e.toTier })}`); break; }
       case 'clock_changed': case 'day_changed': hud(); break;
       case 'income_earned': { const p = income.get(e.id) || { amount: 0, ticks: 3 + Math.random() * 4 }; p.amount += e.amount; income.set(e.id, p); break; }
@@ -128,7 +150,7 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
       case 'types_unlocked': slot.newT.push(...e.types.filter(x => !slot.newT.includes(x))); slot.tab = DEFS[e.types[0]].cat; catalog(); break;
       case 'mascot_message_requested': mascot.show(e); break;
       case 'tutorial_step_completed': requestSave(); break;
-      case 'command_rejected': if (e.reason === 'cafeHeart') toast(t('cafeHeart')); else if (['missingBlueprint', 'invalidBlueprint', 'inUse', 'baseTypeChanged'].includes(e.reason)) toast(t(e.reason)); else if (e.reason === 'notEnough') $('tip').animate([{ opacity: .4 }, { opacity: 1 }], { duration: 250 }); break;
+      case 'command_rejected': if (e.reason === 'cafeHeart') toast(t('cafeHeart')); else if (['missingBlueprint', 'invalidBlueprint', 'inUse', 'baseTypeChanged', 'missingVilla', 'invalidVilla', 'missingGroup'].includes(e.reason)) toast(t(e.reason)); else if (e.reason === 'notEnough') $('tip').animate([{ opacity: .4 }, { opacity: 1 }], { duration: 250 }); break;
       case 'state_replaced': income.clear(); justDone.clear(); mascot.clear(); interaction.select(0); interaction.setTool({ kind: 'select' }); $('city').hidden = true; renderAll(); break;
       case 'tick': tickHappened = true; break;
     }
@@ -151,7 +173,11 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
     /** G: switch grid ⇄ free placement. */
     togglePlacement() { slot.place.mode = slot.place.mode === 'free' ? 'grid' : 'free'; interaction.placementChanged(); placeBar.render(); requestSave(); },
     /** Interaction changed tool or selection. */
-    onInteraction(kind) { if (kind === 'tool') { catalog(); toolButtons(); placeBar.render(); } if (kind === 'selection') { panel(); relations(); if (interaction.selected) audio.click(); } },
+    onInteraction(kind, data) {
+      if (kind === 'tool') { catalog(); toolButtons(); placeBar.render(); }
+      if (kind === 'selection') { groupConfirm = null; panel(); relations(); if (interaction.selected) audio.click(); }
+      if (kind === 'capture' && data) { interaction.setTool({ kind: 'select' }); villaDialog?.capture(data); }
+    },
     frame(dt, light) {
       labels.update(dt); renderLight(light);
       if ((slow += dt) > 5) { slow = 0; const k = affordKey(snap(), slot); if (k !== lastAfford) { lastAfford = k; catalog(); } }

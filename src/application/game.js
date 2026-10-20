@@ -5,7 +5,7 @@ import { rulesFor } from '../core/config/rules.js';
 import { createNewGameState } from '../core/domain/state.js';
 import { computeDerived, applyTick, commitMemory } from '../core/simulation/index.js';
 import { completeGoals, unlockedTypes } from '../core/goals/goals.js';
-import { executeCommand, STRUCTURAL, CMD, ROAD_COMMANDS } from '../core/commands/commands.js';
+import { executeCommand, STRUCTURAL, CMD, ROAD_COMMANDS, GROUP_COMMANDS } from '../core/commands/commands.js';
 import { serializeRoads } from '../core/domain/roads.js';
 import { advanceTutorial, tutorialMessage, needsRoad } from '../core/tutorial/tutorial.js';
 import { adviseNow } from '../core/mascot/advisor.js';
@@ -61,6 +61,8 @@ export function createGame({ state } = {}) {
       const road = cmd && ROAD_COMMANDS.has(cmd.type), before = road && serializeRoads(s), coins0 = s.coins;
       const res = executeCommand(s, cmd); emit(res.events);
       if (road && res.ok) { undo.push({ before, after: serializeRoads(s), coins: s.coins - coins0 }); if (undo.length > UNDO_LIMIT) undo.shift(); redo = []; emit([{ type: 'road_history', undo: undo.length, redo: 0 }]); }
+      // villas rebuild private paths: an older street snapshot would no longer match them, so street undo starts afresh
+      if (res.ok && GROUP_COMMANDS.has(cmd.type) && (undo.length || redo.length)) { undo = []; redo = []; emit([{ type: 'road_history', undo: 0, redo: 0 }]); }
       if (res.ok && STRUCTURAL.has(cmd.type)) { settle(); if (cmd.type === CMD.Place || cmd.type === CMD.Move) remindRoad(res); }
       else if (res.ok && cmd.type === CMD.TutorialSignal) emit(advanceTutorial(s, derived || computeDerived(s)));
       return res;

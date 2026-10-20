@@ -144,7 +144,7 @@ test('saves keep the library and every reference; old saves get an empty library
   const g = game(), st = () => g.getSnapshot().state;
   save(g, named('bakery', 'Horno')); const placed = g.dispatch({ type: CMD.Place, blueprint: { id: 'bp1' }, x: 8, y: 14, r: 0, autoFace: false });
   const doc = JSON.parse(JSON.stringify(createSaveDocument(st())));
-  assert.equal(doc.v, SAVE_VERSION); assert.equal(SAVE_VERSION, 9);
+  assert.equal(doc.v, SAVE_VERSION); assert.ok(SAVE_VERSION >= 9);
   const back = loadSave(doc);
   assert.deepEqual(back.warnings, []);
   assert.deepEqual(back.state.blueprints, st().blueprints);

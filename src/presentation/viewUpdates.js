@@ -3,9 +3,10 @@
 //               events are already contained in that state and must not be applied again
 //   ops       — per building, in order: add · remove · replace (moved / turned / remodelled) · upgrade
 //   roads, occupancy — the road network / the occupied-ground overlay need redrawing
+//   groups    — placed villas changed (fences)
 //   confetti  — goals completed in this batch
 export function planViewUpdates(events, state) {
-  const plan = { rebuild: false, ops: [], roads: false, occupancy: false, confetti: 0, clearRoadHighlight: false };
+  const plan = { rebuild: false, ops: [], roads: false, occupancy: false, groups: false, confetti: 0, clearRoadHighlight: false };
   if (events.some(e => e.type === 'state_replaced')) {
     plan.rebuild = true; plan.confetti = events.filter(e => e.type === 'goal_completed').length;
     return plan;
@@ -19,6 +20,8 @@ export function planViewUpdates(events, state) {
     case 'road_built': case 'road_edited': case 'roads_replaced': plan.roads = true; break;
     case 'road_removed': plan.roads = true; plan.clearRoadHighlight = true; break;
     case 'goal_completed': plan.confetti++; break;
+    case 'group_moved': plan.occupancy = plan.roads = plan.groups = true; for (const id of e.members) if (state.buildings[id]) plan.ops.push({ op: 'replace', id, animate: true }); break;
+    case 'villa_placed': case 'group_removed': case 'group_ungrouped': case 'group_updated': plan.groups = true; break;
   }
   return plan;
 }

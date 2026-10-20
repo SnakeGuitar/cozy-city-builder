@@ -15,6 +15,7 @@ import { createRoadView } from './roads.js';
 import { createAmbient } from './ambient.js';
 import { createOverlays } from './overlays.js';
 import { createTerrainView } from './terrain.js';
+import { createVillaViews } from './villaView.js';
 import { buildingTop, buildingCenter, tileFromWorld } from './coords.js';
 import { variantOf } from './models/index.js';
 import { planViewUpdates } from '../../presentation/viewUpdates.js';
@@ -36,6 +37,7 @@ export function createThreeView(container, { time = (name, fn) => fn() } = {}) {
   const buildings = createBuildingViews(sc.scene, ambient, baseOf, modelOf);
   const roads = createRoadView(sc.scene);
   const overlays = createOverlays(sc.scene, ground);
+  const villas = createVillaViews(sc.scene);
   let night = 0;
 
   return {
@@ -54,7 +56,7 @@ export function createThreeView(container, { time = (name, fn) => fn() } = {}) {
     /** Rebuild everything from a snapshot (start, new game, load). */
     rebuild(state, opts) {
       current = state; time('rebuild.terrain', () => terrain.rebuild(state)); overlays.setMap(state);
-      time('rebuild.buildings', () => buildings.rebuildAll(state, opts)); time('rebuild.roads', () => roads.rebuild(state, ground)); overlays.refreshOccupancy(state); ambient.setWeather(terrain.weather);
+      time('rebuild.buildings', () => buildings.rebuildAll(state, opts)); time('rebuild.roads', () => roads.rebuild(state, ground)); villas.rebuild(state, ground); overlays.refreshOccupancy(state); ambient.setWeather(terrain.weather);
     },
     /** React to core events (plain data). */
     applyEvents(events, state) {
@@ -70,6 +72,7 @@ export function createThreeView(container, { time = (name, fn) => fn() } = {}) {
       if (plan.clearRoadHighlight) overlays.roadHighlight(null, null);
       if (plan.roads) time('rebuild.roads', () => roads.rebuild(state, ground));
       if (plan.occupancy) time('rebuild.occupancy', () => overlays.refreshOccupancy(state));
+      if (plan.groups) time('rebuild.villas', () => villas.rebuild(state, ground));
       if (plan.roads || plan.occupancy) time('rebuild.scenery', () => terrain.refresh(state));
     },
     /** One frame: camera from its visual state, time-of-day light, animations, render. Returns { night, tint, tintOpacity }. */

@@ -6,6 +6,7 @@ import { M, T } from './art.js';
 import { getProto } from './models/index.js';
 import { roadPreview, roadPlanPreview } from './roads.js';
 import { blueprintProto } from './blueprintModel.js';
+import { villaPreview, disposePreview } from './villaView.js';
 import { roadsOf, segmentPolyline, nodeRadius } from '../../core/domain/roads.js';
 import { HALF } from './coords.js';
 import { footprintOf, lotAabb } from '../../core/domain/space.js';
@@ -31,7 +32,8 @@ export function createOverlays(scene, ground = () => 0) {
   const foot = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), markMat); foot.visible = false; foot.renderOrder = 3; scene.add(foot);
   const range = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: T.frame(), color: '#e8c33a', transparent: true, depthWrite: false, opacity: .7 })); range.visible = false; range.renderOrder = 2; scene.add(range);
   const ghostMats = new Map(), ghostEdge = new THREE.LineBasicMaterial({ color: '#6a4631', transparent: true, opacity: .3 });
-  let ghost = null, ghostKey = '';
+  let ghost = null, ghostKey = '', vghost = null, vghostKey = '', area = null;
+  const areaMat = new THREE.MeshBasicMaterial({ map: T.frame(), color: '#4f8a1e', transparent: true, opacity: .6, depthWrite: false });
   const relations = new THREE.Group(); scene.add(relations);
 
   function ghostOf(type, variant, tier = 1, blueprint = null) {
@@ -39,6 +41,7 @@ export function createOverlays(scene, ground = () => 0) {
     o.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .62; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); c.castShadow = false; } if (c.isLineSegments) c.material = ghostEdge; });
     return o;
   }
+  const dropVillaGhost = () => { if (!vghost) return; scene.remove(vghost); disposePreview(vghost); vghost = null; vghostKey = ''; };
   /** Removes the ghost; a road ghost owns its merged geometry, a building ghost shares its model's. */
   const dropGhost = () => { if (!ghost) return; scene.remove(ghost); ghost.traverse(c => { if (c.userData.owned) c.geometry.dispose(); }); };
   // ---- roads: the plan being drawn (styled ghost over a validity band) and the piece under the demolish cursor
@@ -141,7 +144,26 @@ export function createOverlays(scene, ground = () => 0) {
       ghost.visible = true;
       ghost.position.set(position.x, ground(position.x, position.z) + (ok ? .06 + Math.sin(time * 3.3) * .015 : .02), position.z); ghost.rotation.y = rotation;
     },
-    hideGhost() { if (ghost) ghost.visible = false; },
+    hideGhost() { if (ghost) ghost.visible = false; if (vghost) vghost.visible = false; },
+    /**
+     * A whole villa being placed or moved, see-through, at { position, rotation }; `highlight` (an item id) marks the item
+     * that does not fit with a red footprint. The preview is rebuilt only when the villa (or version) changes.
+     */
+    villaGhost(state, v, pose, ok, time, key = `${v.id}@${v.version}`) {
+      if (vghostKey !== key) { dropVillaGhost(); vghost = villaPreview(state, v); vghostKey = key;
+        vghost.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .62; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); c.castShadow = false; } if (c.isLineSegments) c.material = ghostEdge; });
+        scene.add(vghost); }
+      vghost.visible = true; vghost.position.set(pose.position.x, ground(pose.position.x, pose.position.z) + (ok ? .05 + Math.sin(time * 3.3) * .012 : .02), pose.position.z); vghost.rotation.y = pose.rotation;
+    },
+    clearVillaGhost() { dropVillaGhost(); },
+    /** The frame drawn to capture a villa ({ minX, maxX, minZ, maxZ }, or null to hide); amber when nothing is inside. */
+    areaRect(r, ok = true) {
+      if (!r) { if (area) area.visible = false; return; }
+      if (!area) { area = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), areaMat); area.renderOrder = 3; scene.add(area); }
+      const cx = (r.minX + r.maxX) / 2, cz = (r.minZ + r.maxZ) / 2;
+      area.visible = true; area.scale.set(Math.max(.05, r.maxX - r.minX), 1, Math.max(.05, r.maxZ - r.minZ)); area.position.set(cx, ground(cx, cz) + .06, cz);
+      areaMat.color.set(ok ? '#4f8a1e' : '#d49a2a');
+    },
     clearGhost() { dropGhost(); ghost = null; ghostKey = ''; },
     /** links: [{ from: Vector3, to: Vector3, kind: 'inc'|'well'|'svc' }] */
     relations(links) {

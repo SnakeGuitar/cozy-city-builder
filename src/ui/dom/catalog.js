@@ -2,6 +2,7 @@
 import { CATS, DEFS, ERAS, FAMS } from '../../core/config/catalog.js';
 import { costFor, canAfford, blueprintPriceFor, canAffordCoins } from '../../core/commands/commands.js';
 import { blueprintsOf } from '../../core/domain/blueprint.js';
+import { villasOf, villaCost, villaContents } from '../../core/domain/villa.js';
 import { $, ico, KIND_KEY } from './dom.js';
 import { t } from './i18n.js';
 
@@ -29,11 +30,16 @@ function customItems(state, unlocked, bpThumb, active) {
   const card = bp => { const lock = !unlocked.has(bp.baseType), price = blueprintPriceFor(state, bp);
     return `<div class="item-wrap"><button class="item ${active === bp.id ? 'on' : ''} ${lock ? 'locked' : ''} ${!lock && !canAffordCoins(state, price) ? 'poor' : ''}" data-bp="${bp.id}" title="${esc(bp.name)}">${lock ? `<span class="badge lock">${t('locked')}</span>` : `<span class="badge">v${bp.version}</span>`}<span class="th"><img alt="" src="${bpThumb ? bpThumb(bp) : ''}"></span><span class="tag kc-${DEFS[bp.baseType].kind}">${t('n_' + bp.baseType)}</span><span class="nm">${esc(bp.name)}</span><span class="meta">${DEFS[bp.baseType].s}×${DEFS[bp.baseType].s}</span><span class="pr">${lock ? ico('i-lock', '') : price ? `${ico('i-coin', '')}${price}` : t('free')}</span></button>
       <button class="item-edit" data-editbp="${bp.id}" aria-label="${t('ed_editX', { name: esc(bp.name) })}" title="${t('ed_edit')}">✎</button></div>`; };
-  return `<button class="item new-design" data-newbp="1"><span class="th big">＋</span><span class="nm">${t('ed_new')}</span><span class="meta">${t('ed_newHint')}</span></button>${list.map(card).join('')}`;
+  const villas = Object.values(villasOf(state)).sort((a, b) => +a.id.slice(2) - +b.id.slice(2)).map(e => e.versions[e.latest]);
+  const vcard = v => { const c = villaContents(v), price = villaCost(state, v);
+    return `<div class="item-wrap"><button class="item villa ${active === v.id ? 'on' : ''} ${!canAffordCoins(state, price) ? 'poor' : ''}" data-villa="${v.id}" title="${esc(v.name)}"><span class="badge">v${v.version}</span><span class="th"><img alt="" src="${bpThumb?.villa ? bpThumb.villa(state, v) : ''}"></span><span class="tag kc-house">${t('villa')}</span><span class="nm">${esc(v.name)}</span><span class="meta">${v.size.w}×${v.size.d} · ${t('villaCount', { n: c.buildings, p: c.paths })}</span><span class="pr">${price ? `${ico('i-coin', '')}~${price}` : t('free')}</span></button>
+      <button class="item-edit" data-editvilla="${v.id}" aria-label="${t('villaEditX', { name: esc(v.name) })}" title="${t('villaEdit')}">✎</button></div>`; };
+  return `<button class="item new-design" data-newbp="1"><span class="th big">＋</span><span class="nm">${t('ed_new')}</span><span class="meta">${t('ed_newHint')}</span></button>${list.map(card).join('')}`
+    + `<button class="item new-design" data-newvilla="1"><span class="th big">⬚</span><span class="nm">${t('villaNew')}</span><span class="meta">${t('villaNewHint')}</span></button>${villas.map(vcard).join('')}`;
 }
 
 export function renderCatalog({ state }, prefs, unlocked, thumbs, activeType, { bpThumb = null, activeBlueprint = null } = {}) {
-  const designs = Object.keys(blueprintsOf(state)).length;
+  const designs = Object.keys(blueprintsOf(state)).length + Object.keys(villasOf(state)).length;
   $('tabs').innerHTML = CATS.map(c => { const n = Object.keys(DEFS).filter(k => DEFS[k].cat === c); const hasNew = n.some(k => prefs.newT.includes(k));
     return `<button class="tab k-${c} ${prefs.tab === c ? 'on' : ''}" data-cat="${c}">${ico(CAT_ICON[c])}${hasNew ? '<span class="dot"></span>' : ''}<span>${t('cat_' + c)}</span> <small>${n.filter(k => unlocked.has(k)).length}/${n.length}</small></button>`; }).join('')
     + `<button class="tab k-custom ${prefs.tab === 'custom' ? 'on' : ''}" data-cat="custom">${ico(CAT_ICON.custom)}<span>${t('cat_custom')}</span> <small>${designs}</small></button>`;

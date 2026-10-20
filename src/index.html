@@ -326,6 +326,20 @@ body.in-menu #stage,body.in-menu #top,body.in-menu #catalog,body.in-menu #goals,
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
 
+/* ---- villa dialog (ui/dom/villaDialog.js) */
+.vd-layer{position:fixed;inset:0;z-index:45;background:rgba(91,62,44,.32);display:flex;align-items:center;justify-content:center;padding:16px;}
+.vd-layer[hidden]{display:none;}
+.vd{background:var(--card-solid);border-radius:18px;box-shadow:var(--shadow);padding:16px 18px;width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;}
+.vd h3{margin:0 0 10px;font-family:var(--f-serif);font-size:19px;display:flex;align-items:center;gap:6px;} .vd h3 small{font:600 11px var(--f-ui);color:var(--ink-soft);}
+.vd-body{display:flex;gap:14px;flex-wrap:wrap;}
+.vd-pic{margin:0;flex:0 0 150px;text-align:center;font-size:11.5px;color:var(--ink-soft);} .vd-pic img{width:150px;height:150px;border-radius:12px;background:#fffaf0;border:1px solid var(--line);}
+.vd-form{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;}
+.vd-check{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-weight:700;font-size:12.5px;} .vd-check small{flex-basis:100%;color:var(--ink-soft);font-weight:600;}
+.vd-sum{margin:2px 0;font-size:12.5px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;} .vd-sum .ico{display:inline-block;width:14px;height:14px;}
+.vd-list{margin:0;padding-left:18px;font-size:12px;columns:2;}
+.vd-issues{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:12px;} .vd-issues li{padding:4px 8px;border-radius:8px;border-left:4px solid var(--warn);background:#fffaf0;}
+.vd .actions{display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap;} .vd .actions .btn{flex:none;}
+.panel .actions.wrap{flex-wrap:wrap;} .panel .actions.wrap .btn{flex:1 1 45%;}
 /* ---- building editor (ui/dom/editor.js) */
 .editor{position:fixed;inset:0;z-index:40;background:var(--paper);display:grid;grid-template-columns:230px 1fr 290px;grid-template-rows:auto 1fr auto;grid-template-areas:"top top top" "lib stage side" "lib issues side";font-size:13px;}
 .editor[hidden]{display:none;}
@@ -467,6 +481,7 @@ body.in-menu #stage,body.in-menu #top,body.in-menu #catalog,body.in-menu #goals,
 <div id="toasts"></div>
 <pre id="perf" class="perf" hidden aria-label="Rendimiento"></pre>
 <section id="editor" class="editor" role="dialog" aria-modal="true" aria-labelledby="ed-title" hidden></section>
+<div id="villa-dlg" class="vd-layer" role="dialog" aria-modal="true" aria-labelledby="vd-title" hidden></div>
 <div id="menu" class="menu-layer" role="dialog" aria-modal="true" aria-labelledby="menu-title"></div>
 <div id="tip" hidden></div>
 

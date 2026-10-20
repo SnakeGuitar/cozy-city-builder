@@ -16,6 +16,9 @@
 //   v9 — custom buildings: game.blueprints = [{ id, name, latest, versions: [blueprint …] }] (domain/blueprint.js,
 //        each version carries its own `schema`, migrated separately) and game.nextBlueprintId; a building built from
 //        a blueprint stores blueprint: { id, version }. Older towns get an empty library; nothing else changes.
+//   v10 — villas: game.villas = [{ id, name, latest, versions: [villa …] }] (domain/villa.js), game.nextVillaId, and the
+//        placed ones: game.groups = [{ id, villa: { id, version }, position, rotation, seed, members, segments, fence }],
+//        game.nextGroupId. Older towns get none.
 //
 // Repair policy: saves up to v3 always had a café, so one without it is damaged and the café is restored.
 // From v4 an empty map (no café yet) is a normal new game and is never "repaired".
@@ -32,7 +35,8 @@ import { MAP_PRESETS, MAP_SIZES, GENERATOR_VERSION, CLASSIC_PRESET, BIOME_IDS, M
 import { createEmptyState, listBuildings } from '../domain/state.js';
 import { clamp } from '../util/math.js';
 import { normalizeBlueprint, validateBlueprint } from '../domain/blueprint.js';
-export const SAVE_VERSION = 9;
+import { normalizeVilla, validateVilla, FENCE_STYLES, GATE_SIDES } from '../domain/villa.js';
+export const SAVE_VERSION = 10;
 const LEGACY_MAP = 24; // every map before v6 was 24 × 24 cells
 // v1 (Strawberry Borough) building ids → current ids
 export const LEGACY_TYPES = Object.freeze({ houseA: 'fr_trad', houseB: 'fr_trad', houseC: 'fr_cont' });
@@ -48,15 +52,62 @@ export function serializeGame(state) {
     map: serializeMap(state),
     roads: serializeRoads(state),
     blueprints: serializeBlueprints(state), nextBlueprintId: state.nextBlueprintId || 1,
+    villas: serializeLibrary(state.villas, 'vl'), nextVillaId: state.nextVillaId || 1,
+    groups: serializeGroups(state), nextGroupId: state.nextGroupId || 1,
     buildings: listBuildings(state).map(b => ({ id: b.id, type: b.type, tier: b.tier || 1, position: { x: b.position.x, z: b.position.z }, rotation: b.rotation, seed: b.seed, well: b.well, open: b.open,
       ...(b.blueprint ? { blueprint: { id: b.blueprint.id, version: b.blueprint.version } } : {}) })),
   };
 }
 export { serializeRoads, normalizeRoads };
-/** The blueprint library as a list sorted by id number; versions in ascending order. Plain copies. */
-export function serializeBlueprints(state) {
-  return Object.values(state.blueprints || {}).sort((a, b) => +a.id.slice(2) - +b.id.slice(2))
+/** A versioned library ({ id: { id, name, latest, versions } }) as a list sorted by id number; versions in ascending order. Plain copies. */
+export function serializeLibrary(lib, prefix) {
+  return Object.values(lib || {}).sort((a, b) => +a.id.slice(prefix.length) - +b.id.slice(prefix.length))
     .map(e => ({ id: e.id, name: e.name, latest: e.latest, versions: Object.keys(e.versions).map(Number).sort((a, b) => a - b).map(v => JSON.parse(JSON.stringify(e.versions[v]))) }));
+}
+export const serializeBlueprints = state => serializeLibrary(state.blueprints, 'bp');
+/** Placed villas, sorted by id number; members and road pieces that no longer exist are left out. */
+export function serializeGroups(state) {
+  const segs = state.roads?.segments || {};
+  return Object.values(state.groups || {}).sort((a, b) => +a.id.slice(1) - +b.id.slice(1)).map(g => ({ id: g.id, villa: { ...g.villa }, position: { ...g.position }, rotation: g.rotation, seed: g.seed,
+    members: g.members.filter(id => state.buildings[id]), segments: g.segments.filter(id => segs[id]), fence: g.fence ? { ...g.fence } : null }));
+}
+/**
+ * Validates an untrusted villa library against the (already loaded) blueprint library: each version is migrated,
+ * normalised and checked; a version that fails is dropped with a warning.
+ */
+export function normalizeVillas(raw, state, warn = () => {}) {
+  const lib = {}; let top = 0;
+  for (const e of Array.isArray(raw) ? raw : []) {
+    if (!e || typeof e !== 'object' || typeof e.id !== 'string' || !/^vl\d{1,9}$/.test(e.id) || lib[e.id]) { warn('villa entry without a valid id'); continue; }
+    const versions = {};
+    for (const v of Array.isArray(e.versions) ? e.versions : []) {
+      const villa = normalizeVilla(v, m => warn(`${e.id}: ${m}`));
+      if (!villa || !Number.isInteger(v.version) || v.version < 1 || versions[v.version]) { warn(`${e.id}: unreadable version dropped`); continue; }
+      if (!validateVilla(state, villa).ok) { warn(`${e.id} v${v.version}: invalid villa dropped`); continue; }
+      versions[v.version] = { ...villa, id: e.id, version: v.version };
+    }
+    const nums = Object.keys(versions).map(Number); if (!nums.length) { warn(`${e.id}: no usable version, removed`); continue; }
+    const latest = Math.max(...nums); lib[e.id] = { id: e.id, name: versions[latest].name, latest, versions }; top = Math.max(top, +e.id.slice(2));
+  }
+  return { villas: lib, next: top + 1 };
+}
+/** Validates placed villas against the loaded buildings, roads and villa library; sets each member's `group`. */
+export function normalizeGroups(raw, state, warn = () => {}) {
+  const groups = {}; let top = 0; const taken = new Set();
+  for (const g of Array.isArray(raw) ? raw : []) {
+    if (!g || typeof g !== 'object' || typeof g.id !== 'string' || !/^g\d{1,9}$/.test(g.id) || groups[g.id]) { warn('group without a valid id'); continue; }
+    const v = g.villa && state.villas[g.villa.id]?.versions[g.villa.version];
+    if (!v) { warn(`${g.id}: its villa is missing, the buildings stay as ordinary buildings`); continue; }
+    const members = (Array.isArray(g.members) ? g.members : []).filter(id => Number.isInteger(id) && state.buildings[id] && !taken.has(id));
+    const segments = (Array.isArray(g.segments) ? g.segments : []).filter(id => Number.isInteger(id) && state.roads.segments[id]);
+    if (!members.length && !segments.length) { warn(`${g.id}: nothing left of it, removed`); continue; }
+    const pos = g.position && Number.isFinite(g.position.x) && Number.isFinite(g.position.z) ? { x: g.position.x, z: g.position.z } : { x: 0, z: 0 };
+    const fence = g.fence && FENCE_STYLES.includes(g.fence.style) ? { style: g.fence.style, gate: GATE_SIDES.includes(g.fence.gate) ? g.fence.gate : 'front' } : null;
+    groups[g.id] = { id: g.id, villa: { id: g.villa.id, version: g.villa.version }, position: pos, rotation: normAngle(Number.isFinite(g.rotation) ? g.rotation : 0), seed: int(g.seed, 0, 0, 0xffffffff), members, segments, fence };
+    for (const id of members) { taken.add(id); state.buildings[id].group = g.id; }
+    top = Math.max(top, +g.id.slice(1));
+  }
+  return { groups, next: top + 1 };
 }
 /**
  * Validates an untrusted library. Each version is migrated, normalised and checked; versions that fail are dropped
@@ -129,6 +180,10 @@ const MIGRATIONS = {
     if (!d.game || typeof d.game !== 'object') throw new Error('v4 save without game data');
     const list = Array.isArray(d.game.buildings) ? d.game.buildings : [];
     return { ...d, v: 5, game: { ...d.game, buildings: list.map(b => (b && typeof b === 'object' ? { ...b, tier: 1 } : b)) } };
+  },
+  9: d => {
+    if (!d.game || typeof d.game !== 'object') throw new Error('v9 save without game data');
+    return { ...d, v: 10, game: { ...d.game, villas: [], nextVillaId: 1, groups: [], nextGroupId: 1 } };
   },
   8: d => {
     if (!d.game || typeof d.game !== 'object') throw new Error('v8 save without game data');
@@ -228,12 +283,14 @@ export function normalizeGame(game, { repairLandmark = false } = {}) {
     b.well = p.well; b.open = p.open; if (p.blueprint) b.blueprint = p.blueprint;
   }
   state.roads = normalizeRoads(g.roads, warn);
+  const vl = normalizeVillas(g.villas, state, warn); state.villas = vl.villas; state.nextVillaId = Math.max(vl.next, int(g.nextVillaId, 1, 1));
   // road cells found among buildings (damaged or hand-edited documents) join the network instead of vanishing
   if (strayCells.length) { tilesToGraph(state, strayCells); warn(`${strayCells.length} road cells moved from buildings to the road network`); }
   if (repairLandmark && !Object.values(state.buildings).some(b => b.type === LANDMARK)) {
     const spot = LANDMARK_SPOTS.map(([x, y]) => tileToPose(state, LANDMARK, x, y, 0)).find(p => !canPlace(state, LANDMARK, p.position, p.rotation));
     if (spot) { insertBuilding(state, LANDMARK, spot, 1); warn('café was missing and has been restored'); }
   }
+  const gr = normalizeGroups(g.groups, state, warn); state.groups = gr.groups; state.nextGroupId = Math.max(gr.next, int(g.nextGroupId, 1, 1));
   return { state: reindex(state), warnings };
 }
 

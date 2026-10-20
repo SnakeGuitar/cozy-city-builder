@@ -1,6 +1,7 @@
 // Panel for the selected building: what it does, its numbers, and who it affects.
 import { DEFS, SVC_GROUPS, LANDMARK, canUpgrade } from '../../core/config/catalog.js';
-import { refundFor, upgradePreview } from '../../core/commands/commands.js';
+import { refundFor, upgradePreview, groupRefund } from '../../core/commands/commands.js';
+import { groupsOf, getVilla, villasOf } from '../../core/domain/villa.js';
 import { getBlueprint, blueprintsOf, blueprintExtraCost } from '../../core/domain/blueprint.js';
 import { statsOf } from '../../core/domain/state.js';
 import { $, ico, meter, pct, KIND_KEY } from './dom.js';
@@ -57,8 +58,14 @@ export function renderSelectionPanel({ state, derived }, id, confirmDemo, action
   const newer = entry && entry.latest > bp.version ? entry.versions[entry.latest] : null;
   const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const design = bp ? `<div class="design"><span>${t('ed_design')}: <b>${esc(bp.name)}</b> · v${bp.version}</span><div class="actions"><button class="btn" id="p-edit">${t('ed_edit')}</button>${newer ? `<button class="btn up" id="p-remodel">${t('ed_remodel', { n: newer.version })}${(() => { const c = blueprintExtraCost(newer) - blueprintExtraCost(bp); return c > 0 ? ` · ${ico('i-coin', 'ico')}${c}` : ''; })()}</button>` : ''}</div></div>` : '';
+  // a member of a placed villa: the villa's actions (move, turn, copy, save as it stands, update, ungroup, demolish)
+  const grp = b.group && groupsOf(state)[b.group], vil = grp && getVilla(state, grp.villa), ventry = grp && villasOf(state)[grp.villa.id];
+  const vnewer = ventry && ventry.latest > grp.villa.version ? ventry.latest : 0, gc = actions.groupConfirm;
+  const villa = grp ? `<div class="design villa-block"><span>${t('villa')}: <b>${esc(vil?.name || grp.villa.id)}</b> · v${grp.villa.version} · ${t('villaMembers', { n: grp.members.length })}</span>
+    <div class="actions wrap"><button class="btn" id="p-vmove">${t('vg_move')}</button><button class="btn" id="p-vrot">${t('vg_rotate')}</button><button class="btn" id="p-vdup">${t('vg_dup')}</button><button class="btn" id="p-vsave">${t('vg_saveVersion')}</button>${vnewer ? `<button class="btn up" id="p-vup">${t('vg_update', { n: vnewer })}</button>` : ''}</div>
+    <div class="actions"><button class="btn ${gc === 'ungroup' ? 'red' : ''}" id="p-vungroup">${gc === 'ungroup' ? t('vg_ungroupSure') : t('vg_ungroup')}</button><button class="btn ${gc === 'demolish' ? 'red' : 'warn'}" id="p-vdemo">${gc === 'demolish' ? t('vg_demolishSure', { n: groupRefund(state, grp) }) : t('vg_demolish')}</button></div></div>` : '';
   const html = `<button class="close" id="p-close" aria-label="${t('close')}">×</button>
-    <div class="kind"><span class="kdot kc-${k}"></span>${t(KIND_KEY[k])}${tag} · ${d.s}×${d.s}</div><div class="ttl">${bp ? esc(bp.name) : t('n_' + b.type)}</div><div class="desc">${bp ? t('ed_basedOn', { b: t('n_' + b.type) }) + ' ' : ''}${t('d_' + b.type)}</div>${status}${design}
+    <div class="kind"><span class="kdot kc-${k}"></span>${t(KIND_KEY[k])}${tag} · ${d.s}×${d.s}</div><div class="ttl">${bp ? esc(bp.name) : t('n_' + b.type)}</div><div class="desc">${bp ? t('ed_basedOn', { b: t('n_' + b.type) }) + ' ' : ''}${t('d_' + b.type)}</div>${status}${design}${villa}
     ${kv ? `<div class="kv">${kv}</div>` : ''}
     ${rec2.length ? `<div class="rel"><h4>${t('receives')}</h4><ul>${rec2.join('')}</ul></div>` : ''}
     ${giv.length ? `<div class="rel"><h4>${t('gives')}</h4><ul>${giv.join('')}</ul></div>` : ''}
@@ -76,6 +83,11 @@ export function renderSelectionPanel({ state, derived }, id, confirmDemo, action
   if ($('p-up-yes')) $('p-up-yes').onclick = actions.confirmUpgrade;
   if ($('p-edit')) $('p-edit').onclick = () => actions.editDesign?.(b.blueprint.id);
   if ($('p-remodel')) $('p-remodel').onclick = () => actions.remodel?.(b.id, newer.version);
+  if (grp) {
+    $('p-vmove').onclick = () => actions.villa?.('move', grp.id); $('p-vrot').onclick = () => actions.villa?.('rotate', grp.id); $('p-vdup').onclick = () => actions.villa?.('duplicate', grp.id);
+    $('p-vsave').onclick = () => actions.villa?.('save', grp.id); if ($('p-vup')) $('p-vup').onclick = () => actions.villa?.('update', grp.id, vnewer);
+    $('p-vungroup').onclick = () => actions.villa?.('ungroup', grp.id); $('p-vdemo').onclick = () => actions.villa?.('demolish', grp.id);
+  }
 }
 
 /** Relation links for the selected building as plain data: [fromId, toId, kind, labelHtml, chipOnId]. */

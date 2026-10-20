@@ -5,6 +5,7 @@ import { DEFS, isRoadType } from '../../core/config/catalog.js';
 import { getProto } from './models/index.js';
 import { roadPreview } from './roads.js';
 import { blueprintProto } from './blueprintModel.js';
+import { villaPreview, disposePreview } from './villaView.js';
 
 function studio(size) {
   const R = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); R.setSize(size, size); R.outputColorSpace = THREE.SRGBColorSpace;
@@ -30,12 +31,18 @@ export function renderThumbnails(size = 168) {
   return out;
 }
 
-/** thumbOf(blueprint) → data URL of a saved design, cached per id@version; the renderer goes away after 3 s idle. */
+/**
+ * thumbOf(blueprint) → data URL of a saved design; thumbOf.villa(state, villa) → of a saved villa. Cached per
+ * id@version; the small renderer goes away after 3 s idle.
+ */
 export function createBlueprintThumbnails(size = 168) {
   const cache = new Map(); let s = null, idle = null;
-  return function thumbOf(bp) {
-    const key = `${bp.id}@${bp.version}`; if (cache.has(key)) return cache.get(key);
+  const shoot = (key, make) => {
+    if (key && cache.has(key)) return cache.get(key);
     s = s || studio(size); clearTimeout(idle); idle = setTimeout(() => { s.dispose(); s = null; }, 3000);
-    const url = s.shoot(blueprintProto(bp).clone()); cache.set(key, url); return url;
+    const o = make(), url = s.shoot(o); if (key) cache.set(key, url); return { o, url }; // a draft (no key) is never cached
   };
+  const thumbOf = bp => { const r = shoot(`${bp.id}@${bp.version}`, () => blueprintProto(bp).clone()); return typeof r === 'string' ? r : r.url; };
+  thumbOf.villa = (state, v) => { const r = shoot(v.id ? `${v.id}@${v.version}` : null, () => villaPreview(state, v)); if (typeof r === 'string') return r; disposePreview(r.o); return r.url; };
+  return thumbOf;
 }

@@ -8,6 +8,7 @@ import { createCameraController } from '../../presentation/camera/controller.js'
 import { createThreeView, renderThumbnails, createBlueprintThumbnails, createEditorView } from '../../rendering/three/index.js';
 import { createBlueprintEditor, recoverDraft } from '../../application/blueprintEditor.js';
 import { createEditorUI } from '../../ui/dom/editor.js';
+import { createVillaDialog } from '../../ui/dom/villaDialog.js';
 import { createInteraction } from '../../ui/interaction.js';
 import { createDomUI, normalizeSettings, normalizeSlotUi } from '../../ui/dom/index.js';
 import { createMenu } from '../../ui/dom/menu.js';
@@ -44,7 +45,7 @@ let saveTimer = null;
 const requestSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => { app.save(); saveSettings(); }, 400); };
 
 let ui = null;
-const interaction = createInteraction({ game, view, onChange: kind => ui && ui.onInteraction(kind), placement: () => slot.place });
+const interaction = createInteraction({ game, view, onChange: (kind, data) => ui && ui.onInteraction(kind, data), placement: () => slot.place });
 const bpThumb = createBlueprintThumbnails();
 /** The building editor: a screen over the paused town (application/navigation.js 'editor'). */
 const editorUI = createEditorUI({ root: document.getElementById('editor'), game, reducedMotion,
@@ -54,7 +55,8 @@ function openEditor(what = {}) {
   if (!playing()) return;
   interaction.setTool({ kind: 'select' }); app.navigate({ type: 'open_editor', editor: what }); editorUI.open(what);
 }
-ui = createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave, bpThumb, openEditor });
+const villaDialog = createVillaDialog({ root: document.getElementById('villa-dlg'), game, thumbOf: bpThumb, toast: html => ui.toast(html), onSaved: () => { slot.tab = 'custom'; requestSave(); } });
+ui = createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave, bpThumb, openEditor, villaDialog });
 const playing = () => simulationRunning(app.nav);
 const menu = createMenu({ settings, actions: {
   continue: () => app.continueGame(), newGame: () => app.setupNewGame('normal'), sandbox: () => (app.hasSave('sandbox') ? app.openSandbox() : app.setupNewGame('sandbox')),

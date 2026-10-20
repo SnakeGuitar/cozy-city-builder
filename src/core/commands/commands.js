@@ -4,7 +4,7 @@ import { DEFS, ECON, LANDMARK, isRoadType, tierOf, tierStats, maxTierOf, investe
 import { SPEEDS } from '../config/world.js';
 import { rulesFor } from '../config/rules.js';
 import { autoFace, canPlace, insertBuilding, removeBuilding, setPose, tileToPose, snapToGrid, overlapping, obbFor } from '../domain/space.js';
-import { roadsOf, addTileRoad, nodeAtPoint, roadHitsObb, removeSegment, touchRoads, curvePoints, segmentControl, normalizeRoads, listSegments, listNodes, segmentPolyline } from '../domain/roads.js';
+import { roadsOf, addTileRoad, nodeAtPoint, roadHitsObb, removeSegment, touchRoads, curvePoints, segmentControl, normalizeRoads, listSegments, listNodes, segmentPolyline, segmentLength } from '../domain/roads.js';
 import { planTrace, checkCurve } from '../domain/roadPlan.js';
 import { makeObb } from '../domain/geometry.js';
 import { normAngle, angleToQuarter, QUARTER } from '../domain/geometry.js';
@@ -12,11 +12,17 @@ import { unlockedTypes } from '../goals/goals.js';
 import { nextRandom } from '../util/random.js';
 import { normalizeBlueprint, validateBlueprint, getBlueprint, blueprintsOf, blueprintUsers, blueprintExtraCost, entranceOf, sameDesign, nextBlueprintId } from '../domain/blueprint.js';
 import { FACE_ANGLE } from '../config/modules.js';
+import { normalizeVilla, validateVilla, getVilla, villasOf, groupsOf, villaUsers, nextVillaId, nextGroupId, sameVilla, toWorld, toLocal, itemSeed, fenceRuns } from '../domain/villa.js';
+import { reindex } from '../domain/space.js';
+import { bumpRev } from '../domain/state.js';
 
 export const CMD = Object.freeze({ Place: 'PlaceBuilding', Move: 'MoveBuilding', Rotate: 'RotateBuilding', Demolish: 'DemolishBuilding', Upgrade: 'UpgradeBuilding',
-  BuildRoad: 'BuildRoad', DemolishRoad: 'DemolishRoad', EditRoad: 'EditRoad', RestoreRoads: 'RestoreRoads', SaveBlueprint: 'SaveBlueprint', DeleteBlueprint: 'DeleteBlueprint', Remodel: 'RemodelBuilding', SetSpeed: 'SetSpeed', TogglePause: 'TogglePause', TutorialSignal: 'TutorialSignal' });
+  BuildRoad: 'BuildRoad', DemolishRoad: 'DemolishRoad', EditRoad: 'EditRoad', RestoreRoads: 'RestoreRoads', SaveBlueprint: 'SaveBlueprint', DeleteBlueprint: 'DeleteBlueprint', Remodel: 'RemodelBuilding',
+  SaveVilla: 'SaveVilla', DeleteVilla: 'DeleteVilla', PlaceVilla: 'PlaceVilla', MoveGroup: 'MoveGroup', DemolishGroup: 'DemolishGroup', UpdateGroup: 'UpdateGroup', Ungroup: 'Ungroup', SetSpeed: 'SetSpeed', TogglePause: 'TogglePause', TutorialSignal: 'TutorialSignal' });
 /** Commands that change the map (the application recomputes the town after them). */
-export const STRUCTURAL = new Set([CMD.Place, CMD.Move, CMD.Rotate, CMD.Demolish, CMD.Upgrade, CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad, CMD.RestoreRoads, CMD.Remodel]);
+export const STRUCTURAL = new Set([CMD.Place, CMD.Move, CMD.Rotate, CMD.Demolish, CMD.Upgrade, CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad, CMD.RestoreRoads, CMD.Remodel, CMD.PlaceVilla, CMD.MoveGroup, CMD.DemolishGroup, CMD.UpdateGroup, CMD.Ungroup]);
+/** Commands that rebuild roads as part of a group (front ends drop the street undo history after them). */
+export const GROUP_COMMANDS = new Set([CMD.PlaceVilla, CMD.MoveGroup, CMD.DemolishGroup, CMD.UpdateGroup]);
 /** Commands that change only the road network (front ends may offer undo / redo for these). */
 export const ROAD_COMMANDS = new Set([CMD.BuildRoad, CMD.DemolishRoad, CMD.EditRoad]);
 
@@ -110,6 +116,61 @@ function placeRoadCell(state, cmd, type) {
   return { ok: true, nodeId: node.id, events };
 }
 
+// ---------------------------------------------------------------- atomic multi-step operations (villas and groups)
+/**
+ * A private copy of everything a villa or group operation may change. The operation runs every step on it; only when
+ * all of them succeed does commitScratch put the copy back, so the real state never sees half an operation.
+ */
+function scratchOf(state) {
+  const copy = o => JSON.parse(JSON.stringify(o));
+  const s = { ...state, buildings: copy(state.buildings), roads: copy(roadsOf(state)), groups: copy(groupsOf(state)), clock: state.clock };
+  reindex(s); return s;
+}
+function commitScratch(state, s) {
+  for (const k of ['buildings', 'roads', 'groups', 'coins', 'nextId', 'rngSeed', 'nextGroupId', 'spatial']) state[k] = s[k];
+  touchRoads(state); bumpRev(state);
+}
+/** Builds every item of a villa at a pose on `s` (buildings first, then paths). Charges as each item would. */
+function buildVilla(s, v, pose, seed, events) {
+  const members = [], segments = [];
+  for (const it of v.items.filter(i => i.kind === 'building')) {
+    const res = handlers[CMD.Place](s, { type: CMD.Place, buildingType: it.type, ...(it.blueprint ? { blueprint: it.blueprint } : {}), position: toWorld(pose, it.position), rotation: normAngle(it.rotation + pose.rotation), autoFace: false, seed: itemSeed(v, it, seed) });
+    if (!res.ok) return { ok: false, reason: res.reason, itemId: it.id };
+    members.push(res.id); events.push(...res.events);
+  }
+  for (const it of v.items.filter(i => i.kind === 'path')) {
+    const res = handlers[CMD.BuildRoad](s, { type: CMD.BuildRoad, points: it.points.map(p => toWorld(pose, p)), style: it.style, shape: it.shape });
+    if (!res.ok) return { ok: false, reason: res.reason, itemId: it.id };
+    segments.push(...res.segmentIds); events.push(...res.events);
+  }
+  return { ok: true, members, segments };
+}
+/** Why a villa's fence cannot stand at a pose (it would cut a street or another building), or null. */
+function fenceBlocker(s, v, pose, members) {
+  const own = new Set(members);
+  for (const r of fenceRuns(v)) {
+    const a = toWorld(pose, r.a), b = toWorld(pose, r.b), L = Math.hypot(b.x - a.x, b.z - a.z);
+    const o = makeObb((a.x + b.x) / 2, (a.z + b.z) / 2, .05, L, Math.atan2(b.x - a.x, b.z - a.z));
+    if (roadHitsObb(s, o)) return 'fenceRoad';
+    if (overlapping(s, o).some(x => !own.has(x.id))) return 'fenceBlocked';
+  }
+  return null;
+}
+/** Removes a group's buildings and road pieces from `s`, giving back what demolition would. Returns { refund, removed, segmentIds }. */
+function clearGroup(s, g, refunds = true) {
+  let refund = 0; const removed = [], segmentIds = [];
+  for (const id of g.members) { const b = s.buildings[id]; if (!b) continue; const back = refunds ? refundFor(s, b) : 0; refund += back; removed.push({ id, buildingType: b.type, position: { ...b.position }, rotation: b.rotation, refund: back }); removeBuilding(s, b); }
+  const rate = rulesFor(s).refundsEnabled && refunds ? ECON.refundRate : 0;
+  for (const id of g.segments) { const seg = roadsOf(s).segments[id]; if (!seg) continue; refund += Math.floor((seg.paid || 0) * rate); removeSegment(s, id); segmentIds.push(id); }
+  s.coins += refund; return { refund, removed, segmentIds };
+}
+const groupPose = g => ({ position: { ...g.position }, rotation: g.rotation });
+/** Coins demolishing a placed villa would give back under the state's rules (its buildings and private paths). */
+export function groupRefund(state, g) {
+  const rate = rulesFor(state).refundsEnabled ? ECON.refundRate : 0, segs = roadsOf(state).segments;
+  return g.members.reduce((a, id) => a + (state.buildings[id] ? refundFor(state, state.buildings[id]) : 0), 0) + g.segments.reduce((a, id) => a + Math.floor((segs[id]?.paid || 0) * rate), 0);
+}
+
 const handlers = {
   /**
    * Places a building: { buildingType, position, rotation } (or grid { x, y, r }), optional seed and autoFace.
@@ -168,6 +229,8 @@ const handlers = {
     const refund = refundFor(state, b);
     state.coins += refund; removeBuilding(state, b);
     const events = [{ type: 'building_removed', id: b.id, buildingType: b.type, position: { ...b.position }, rotation: b.rotation, refund }];
+    const g = b.group && groupsOf(state)[b.group]; // a villa loses this member; an empty villa (no buildings, no paths left) is dissolved
+    if (g) { g.members = g.members.filter(id => id !== b.id); if (!g.members.length && !g.segments.some(id => roadsOf(state).segments[id])) { delete state.groups[g.id]; events.push({ type: 'group_removed', id: g.id, refund: 0 }); } }
     if (refund) events.push(coinsEvent(state, refund));
     return { ok: true, id: b.id, events };
   },
@@ -294,6 +357,120 @@ const handlers = {
     if (cost) events.push(coinsEvent(state, -cost));
     return { ok: true, id: b.id, events };
   },
+  /**
+   * Saves a villa definition as a new immutable version: { villa, asNew? } (like SaveBlueprint). The definition is
+   * normalised and validated against the state's blueprint library; issues come back with a rejection.
+   */
+  [CMD.SaveVilla](state, cmd) {
+    const v = normalizeVilla(cmd.villa); if (!v) return reject(cmd, 'invalidVilla');
+    const check = validateVilla(state, v); if (!check.ok) return { ...reject(cmd, 'invalidVilla'), issues: check.issues };
+    const lib = state.villas || (state.villas = {}), entry = !cmd.asNew && v.id && lib[v.id];
+    if (entry) {
+      const last = entry.versions[entry.latest];
+      if (last.name === v.name && sameVilla(last, v)) return { ok: true, id: entry.id, version: entry.latest, unchanged: true, events: [] };
+      const version = entry.latest + 1; entry.versions[version] = { ...v, id: entry.id, version }; entry.latest = version; entry.name = v.name;
+      // saved from a placed group as it stands: that group now is this version (nothing is rebuilt)
+      const g = cmd.fromGroup && groupsOf(state)[cmd.fromGroup];
+      if (g && g.villa.id === entry.id) { g.villa = { id: entry.id, version }; g.fence = v.fence ? { ...v.fence } : null; }
+      return { ok: true, id: entry.id, version, events: [{ type: 'villa_saved', id: entry.id, version, name: v.name }, ...(g ? [{ type: 'group_updated', id: g.id, villa: { ...g.villa }, members: [...g.members], segmentIds: [...g.segments], cost: 0 }] : [])] };
+    }
+    const id = nextVillaId(state); state.nextVillaId = (state.nextVillaId || 1) + 1;
+    lib[id] = { id, name: v.name, latest: 1, versions: { 1: { ...v, id, version: 1 } } };
+    return { ok: true, id, version: 1, events: [{ type: 'villa_saved', id, version: 1, name: v.name, created: true }] };
+  },
+  /** Removes a villa definition: { id }. Refused ('inUse') while a placed group uses it. */
+  [CMD.DeleteVilla](state, cmd) {
+    if (!villasOf(state)[cmd.id]) return reject(cmd, 'missingVilla');
+    const users = villaUsers(state, cmd.id); if (users.length) return { ...reject(cmd, 'inUse'), groups: users };
+    delete state.villas[cmd.id];
+    return { ok: true, events: [{ type: 'villa_deleted', id: cmd.id }] };
+  },
+  /**
+   * Builds a whole villa at once: { villa: { id, version? }, position, rotation, seed? }. Every building and path is
+   * placed and paid for as if built by hand; if any of them cannot be, nothing is (the rejection names the item).
+   */
+  [CMD.PlaceVilla](state, cmd) {
+    const v = getVilla(state, cmd.villa); if (!v) return reject(cmd, 'missingVilla');
+    if (!validateVilla(state, v).ok) return reject(cmd, 'invalidVilla');
+    if (!cmd.position || !Number.isFinite(cmd.position.x) || !Number.isFinite(cmd.position.z)) return reject(cmd, 'outside');
+    const pose = { position: { x: +cmd.position.x, z: +cmd.position.z }, rotation: normAngle(Number.isFinite(cmd.rotation) ? cmd.rotation : 0) };
+    const s = scratchOf(state), events = [], seed = Number.isInteger(cmd.seed) && cmd.seed >= 0 ? cmd.seed : drawSeed(s);
+    const built = buildVilla(s, v, pose, seed, events);
+    if (!built.ok) return { ...reject(cmd, built.reason), itemId: built.itemId };
+    const fence = fenceBlocker(s, v, pose, built.members); if (fence) return reject(cmd, fence);
+    const id = nextGroupId(s); s.nextGroupId = (s.nextGroupId || 1) + 1;
+    s.groups[id] = { id, villa: { id: v.id, version: v.version }, ...pose, seed, members: built.members, segments: built.segments, fence: v.fence ? { ...v.fence } : null };
+    for (const m of built.members) s.buildings[m].group = id;
+    const cost = state.coins - s.coins; commitScratch(state, s);
+    return { ok: true, groupId: id, cost, events: [...events.filter(e => e.type !== 'coins_changed'), { type: 'villa_placed', groupId: id, villa: { id: v.id, version: v.version }, members: built.members, segmentIds: built.segments, cost }, ...(cost ? [coinsEvent(state, -cost)] : [])] };
+  },
+  /**
+   * Moves and/or turns a placed villa as one piece: { id, position, rotation }. Buildings keep their ids, tiers and
+   * memory; private paths are rebuilt at the new place without paying again. All or nothing.
+   */
+  [CMD.MoveGroup](state, cmd) {
+    const g = groupsOf(state)[cmd.id]; if (!g) return reject(cmd, 'missingGroup');
+    const v = getVilla(state, g.villa), from = groupPose(g);
+    const to = { position: cmd.position && Number.isFinite(cmd.position.x) && Number.isFinite(cmd.position.z) ? { x: +cmd.position.x, z: +cmd.position.z } : { ...g.position }, rotation: normAngle(Number.isFinite(cmd.rotation) ? cmd.rotation : g.rotation) };
+    const s = scratchOf(state), sg = s.groups[g.id], r = roadsOf(s);
+    const members = sg.members.map(id => s.buildings[id]).filter(Boolean).map(b => ({ b: { ...b }, local: toLocal(from, b.position), turn: b.rotation - from.rotation }));
+    const paths = sg.segments.map(id => r.segments[id]).filter(Boolean).map(seg => ({ style: seg.style, shape: seg.controlPoints.length ? 'curve' : 'polyline', paid: seg.paid || 0, points: segmentControl(s, seg).map(p => toLocal(from, p)) }));
+    for (const m of members) removeBuilding(s, s.buildings[m.b.id]);
+    for (const id of sg.segments) if (r.segments[id]) removeSegment(s, id);
+    for (const m of members) {
+      const position = toWorld(to, m.local), rotation = normAngle(m.turn + to.rotation), why = canPlace(s, m.b.type, position, rotation);
+      if (why) return { ...reject(cmd, why), buildingId: m.b.id };
+      const nb = insertBuilding(s, m.b.type, { position, rotation }, m.b.seed, m.b.id, m.b.tier);
+      Object.assign(nb, { well: m.b.well, open: m.b.open, group: g.id }, m.b.blueprint ? { blueprint: m.b.blueprint } : {});
+    }
+    const segments = [];
+    for (const p of paths) {
+      const trace = planTrace(s, { points: p.points.map(q => toWorld(to, q)), style: p.style, shape: p.shape, snap: true });
+      if (!trace.ok) return reject(cmd, trace.reason);
+      s.roads = trace.roads; touchRoads(s);
+      const total = trace.segmentIds.reduce((a, id) => a + segmentLength(s, s.roads.segments[id]), 0) || 1;
+      for (const id of trace.segmentIds) s.roads.segments[id].paid = Math.round(p.paid * segmentLength(s, s.roads.segments[id]) / total); // already paid for: only the record moves
+      segments.push(...trace.segmentIds);
+    }
+    if (v) { const fence = fenceBlocker(s, v, to, members.map(m => m.b.id)); if (fence) return reject(cmd, fence); }
+    Object.assign(sg, to, { segments });
+    commitScratch(state, s);
+    return { ok: true, id: g.id, events: [{ type: 'group_moved', id: g.id, from, to, members: members.map(m => m.b.id), segmentIds: segments }] };
+  },
+  /** Demolishes a placed villa: { id }. Its buildings and private paths go; half of what was paid comes back. */
+  [CMD.DemolishGroup](state, cmd) {
+    const g = groupsOf(state)[cmd.id]; if (!g) return reject(cmd, 'missingGroup');
+    const s = scratchOf(state), { refund, removed, segmentIds } = clearGroup(s, s.groups[g.id]);
+    delete s.groups[g.id]; commitScratch(state, s);
+    const events = removed.map(x => ({ type: 'building_removed', ...x }));
+    if (segmentIds.length) events.push({ type: 'road_removed', segmentIds, nodeIds: [], refund: 0 });
+    events.push({ type: 'group_removed', id: g.id, refund });
+    if (refund) events.push(coinsEvent(state, refund));
+    return { ok: true, events };
+  },
+  /** Rebuilds a placed villa from another version of its definition at the same place: { id, version }. All or nothing. */
+  [CMD.UpdateGroup](state, cmd) {
+    const g = groupsOf(state)[cmd.id]; if (!g) return reject(cmd, 'missingGroup');
+    const v = getVilla(state, { id: g.villa.id, version: cmd.version }); if (!v) return reject(cmd, 'missingVilla');
+    if (v.version === g.villa.version) return reject(cmd, 'sameVersion');
+    if (!validateVilla(state, v).ok) return reject(cmd, 'invalidVilla');
+    const s = scratchOf(state), sg = s.groups[g.id], cleared = clearGroup(s, sg), events = [];
+    const built = buildVilla(s, v, groupPose(g), g.seed, events);
+    if (!built.ok) return { ...reject(cmd, built.reason), itemId: built.itemId };
+    const fence = fenceBlocker(s, v, groupPose(g), built.members); if (fence) return reject(cmd, fence);
+    Object.assign(sg, { villa: { id: v.id, version: v.version }, members: built.members, segments: built.segments, fence: v.fence ? { ...v.fence } : null });
+    for (const m of built.members) s.buildings[m].group = g.id;
+    const cost = state.coins - s.coins; commitScratch(state, s);
+    return { ok: true, id: g.id, cost, events: [...cleared.removed.map(x => ({ type: 'building_removed', ...x })), ...events.filter(e => e.type !== 'coins_changed'),
+      { type: 'group_updated', id: g.id, villa: { ...sg.villa }, members: built.members, segmentIds: built.segments, cost }, ...(cost ? [coinsEvent(state, -cost)] : [])] };
+  },
+  /** Dissolves a placed villa into ordinary buildings and streets: { id }. Its fence goes with the group. */
+  [CMD.Ungroup](state, cmd) {
+    const g = groupsOf(state)[cmd.id]; if (!g) return reject(cmd, 'missingGroup');
+    for (const id of g.members) if (state.buildings[id]) delete state.buildings[id].group;
+    delete state.groups[g.id]; bumpRev(state);
+    return { ok: true, events: [{ type: 'group_ungrouped', id: g.id, members: [...g.members] }] };
+  },
   [CMD.SetSpeed](state, cmd) {
     if (!SPEEDS.includes(cmd.speed)) return reject(cmd, 'badSpeed');
     state.clock.speed = cmd.speed; state.clock.paused = false;
@@ -310,6 +487,16 @@ const handlers = {
     return { ok: true, events: [{ type: 'clock_changed', speed: state.clock.speed, paused: state.clock.paused }] };
   },
 };
+
+/**
+ * What a villa or group command would do, without doing it: { ok, reason, cost, itemId, buildingId }. Only for the
+ * commands that work on a private copy (PlaceVilla, MoveGroup, UpdateGroup); used by previews.
+ */
+export function dryRun(state, cmd) {
+  if (![CMD.PlaceVilla, CMD.MoveGroup, CMD.UpdateGroup].includes(cmd?.type)) throw new Error(`no dry run for ${cmd?.type}`);
+  const shadow = { ...state }, res = executeCommand(shadow, cmd); // commits land on the shadow, never on `state`
+  return { ok: res.ok, reason: res.reason || null, cost: res.ok ? state.coins - shadow.coins : 0, itemId: res.itemId ?? null, buildingId: res.buildingId ?? null };
+}
 
 export function executeCommand(state, cmd) {
   const h = cmd && handlers[cmd.type];

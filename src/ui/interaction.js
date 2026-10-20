@@ -11,7 +11,8 @@ import { canPlace, autoFace, tileToPose } from '../core/domain/space.js';
 import { quarterToAngle, angleToQuarter, normAngle } from '../core/domain/geometry.js';
 import { snapPosition, snapAngle, snapToRoad, snapToBuildings } from '../core/domain/snap.js';
 import { statsOf } from '../core/domain/state.js';
-import { CMD, peekSeed, refundFor, costFor, roadCostFor, blueprintPriceFor, canAffordCoins, blueprintBlocker } from '../core/commands/commands.js';
+import { CMD, peekSeed, refundFor, costFor, roadCostFor, blueprintPriceFor, canAffordCoins, blueprintBlocker, dryRun } from '../core/commands/commands.js';
+import { getVilla, groupsOf, groupAsVilla, captureVilla, villaContents } from '../core/domain/villa.js';
 import { getBlueprint, entranceOf } from '../core/domain/blueprint.js';
 import { FACE_ANGLE } from '../core/config/modules.js';
 import { planTrace, roadPieceAt, checkCurve } from '../core/domain/roadPlan.js';
@@ -93,6 +94,44 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
   const stepRad = () => prefs().step * Math.PI / 180;
   /** The saved blueprint version the build tool places (custom buildings), or null. */
   const toolBlueprint = () => tool.blueprint ? getBlueprint(snap().state, tool.blueprint) : null;
+  // ---- villas: framing an arrangement to save it, placing a saved villa, moving a placed one
+  const villaTool = () => tool.kind === 'placeVilla' || tool.kind === 'moveGroup';
+  let area = null, villaMemo = { key: '', res: null }, villaPose = null;
+  /** The villa definition the tool shows: a saved version, or a placed group as it stands. */
+  function toolVilla() {
+    const { state } = snap();
+    if (tool.kind === 'placeVilla') return getVilla(state, tool.villa);
+    const g = groupsOf(state)[tool.id]; return g ? groupAsVilla(state, g) : null;
+  }
+  /** Where the villa would go under a ground point: half-unit steps on the grid, free otherwise. */
+  function villaPoseAt(g) {
+    const half = v => Math.round(v * 2) / 2, free = prefs().mode === 'free' && !prefs().snapGrid;
+    return { position: free ? { x: g.x, z: g.z } : { x: half(g.x), z: half(g.z) }, rotation: tool.rot };
+  }
+  /** Dry run of the villa command at a pose (memoised per pose and state revision). */
+  function villaCheck(pose) {
+    const { state } = snap(), cmd = tool.kind === 'placeVilla' ? { type: CMD.PlaceVilla, villa: tool.villa, ...pose, seed: tool.seed } : { type: CMD.MoveGroup, id: tool.id, ...pose };
+    const key = JSON.stringify(cmd) + '|' + (state.rev || 0) + '|' + state.coins;
+    if (villaMemo.key !== key) villaMemo = { key, res: dryRun(state, cmd), cmd };
+    return villaMemo;
+  }
+  function villaPreviewAt(pose, at) {
+    const v = toolVilla(); if (!v) { setTool({ kind: 'select' }); return null; }
+    const { res } = villaCheck(pose), why = res.ok ? null : res.reason;
+    view.overlays.villaGhost(snap().state, v, pose, !why, time, tool.kind === 'moveGroup' ? `group:${tool.id}:${snap().state.rev || 0}` : undefined);
+    if (at) {
+      const c = villaContents(v), coin = '<svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>';
+      tip.hidden = false;
+      tip.innerHTML = `${esc(v.name || t('villa'))} · ${tool.kind === 'placeVilla' ? (res.ok ? (res.cost ? `${res.cost} ${coin}` : t('free')) : '') : t('villaMoveFree')} · ${t('villaCount', { n: c.buildings, p: c.paths })}${why ? ` · <span class="bad">✕ ${t(why)}${res.itemId ? ` (${t('villaItem', { n: res.itemId })})` : ''}</span>` : ''}<br><span style="font-weight:600;opacity:.7">${t(tool.kind === 'placeVilla' ? 'villaPlaceHint' : 'villaMoveHint')}</span>`;
+      const tx = Math.min(at.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${at.y + 18}px)`;
+    }
+    return why;
+  }
+  function placeVillaAt(pose) {
+    const { cmd } = villaCheck(pose), res = game.dispatch(cmd);
+    if (res.ok) { pending = null; if (tool.kind === 'moveGroup') { const id = tool.id; setTool({ kind: 'select' }); const m = groupsOf(snap().state)[id]?.members[0]; if (m) select(m); } else { tool.seed = peekSeed(snap().state); onChange('tool'); } }
+    return res.ok;
+  }
   /** How far a custom building's entrance side is turned from its front: it faces the street with its door. */
   const faceOffset = () => { const bp = tool.kind === 'build' && toolBlueprint(), e = bp && entranceOf(bp); return e ? FACE_ANGLE[e.side] : 0; };
 
@@ -119,9 +158,12 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
 
   function setTool(next) {
     if (tool.kind === 'move' && next.kind !== 'move') view.setBuildingHidden(tool.id, false);
+    if (tool.kind === 'moveGroup') for (const id of groupsOf(snap().state)[tool.id]?.members || []) view.setBuildingHidden(id, false);
+    view.overlays.clearVillaGhost(); view.overlays.areaRect(null); area = null;
     tool = { r: 0, rot: 0, manualR: false, ...next }; confirmDemo = false; pending = null; draft = null; pendingRoad = null; view.overlays.hideRoadPlan(); view.overlays.roadMarkers(null);
     view.overlays.clearGhost(); view.overlays.hideFootprint(); tip.hidden = true;
-    view.overlays.setBuildMode(building() || tool.kind === 'demolish');
+    view.overlays.setBuildMode(building() || villaTool() || tool.kind === 'captureVilla' || tool.kind === 'demolish');
+    if (tool.kind === 'moveGroup') for (const id of groupsOf(snap().state)[tool.id]?.members || []) view.setBuildingHidden(id, true);
     if (!selected) view.overlays.hideRange();
     updateHover(); onChange('tool');
   }
@@ -173,6 +215,18 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     view.overlays.hideFootprint(); tip.hidden = true; if (tool.kind !== 'demolish') view.overlays.roadHighlight(null, null);
     if (building() && pending) { preview(pending, false); return; } // touch: the preview stays where it was tapped
     if (drawMode()) { view.overlays.hideGhost(); if (pendingRoad) showRoadPlan(pendingRoad, null); else if (draft) showRoadPlan(roadRequest(draft), mouse.in ? mouse : null); else if (mouse.in) { view.overlays.roadMarkers(null); tip.hidden = false; tip.innerHTML = `${t('n_' + tool.type)}<br><span style="font-weight:600;opacity:.7">${t('roadsDraw_' + roadShape())}</span>`; const tx = Math.min(mouse.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${mouse.y + 18}px)`; } return; }
+    if (villaTool()) {
+      if (pending) { villaPreviewAt(pending, null); return; }
+      if (!mouse.in) { view.overlays.hideGhost(); return; }
+      const g = view.groundAt(mouse.x, mouse.y); if (!g) return; villaPose = villaPoseAt(g); villaPreviewAt(villaPose, mouse); return;
+    }
+    if (tool.kind === 'captureVilla') {
+      if (!mouse.in && !area) return;
+      tip.hidden = false;
+      if (area) { const c = villaContents(captureVilla(snap().state, area).villa); tip.innerHTML = `${t('villaFrame')} · ${Math.round(area.maxX - area.minX)}×${Math.round(area.maxZ - area.minZ)} · ${t('villaCount', { n: c.buildings, p: c.paths })}`; }
+      else tip.innerHTML = `${t('villaFrame')}<br><span style="font-weight:600;opacity:.7">${t('villaFrameHint')}</span>`;
+      const tx = Math.min(mouse.x + 16, innerWidth - tip.offsetWidth - 8); tip.style.transform = `translate(${tx}px,${mouse.y + 18}px)`; return;
+    }
     if (!mouse.in) { view.overlays.hideGhost(); return; }
     const { state } = snap();
     if (building()) { const pose = poseAt(mouse.x, mouse.y); if (!pose) return; hover = pose; preview(pose, true); }
@@ -221,7 +275,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     confirmUpgrade() { if (!selected) return false; const res = game.dispatch({ type: CMD.Upgrade, id: selected }); if (res.ok) { upgradeOpen = false; onChange('selection'); } return res.ok; },
     setTool, select, updateHover,
     frame(dt) {
-      time += dt; if (building()) updateHover(); if (selected && !snap().state.buildings[selected]) select(0);
+      time += dt; if (building() || villaTool()) updateHover(); if (selected && !snap().state.buildings[selected]) select(0);
       const r = roadsOf(snap().state); if (road && !(road.segmentId ? r.segments[road.segmentId] : r.nodes[road.nodeId])) selectRoad(null);
       else if (road) view.overlays.roadHighlight(snap().state, road, true);
     },
@@ -234,7 +288,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
         pts.forEach((p, i) => { const [sx, sy] = view.project({ x: p.x, y: .15, z: p.z }); if (Math.hypot(sx - x, sy - y) < 18 && handle < 0) handle = i; });
         if (handle >= 0) { activeHandle = handle; handleDrag = null; return true; }
       }
-      return (tool.kind === 'build' && isRoadType(tool.type)) || tool.kind === 'demolish';
+      return (tool.kind === 'build' && isRoadType(tool.type)) || tool.kind === 'demolish' || tool.kind === 'captureVilla';
     },
     paint(x, y, dragging) {
       const { state } = snap();
@@ -244,6 +298,15 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
         const pl = curvePoints([ends[0], ...cps, ends.at(-1)]), why = checkCurve(state, pl, seg.width);
         handleDrag = { x: g.x, z: g.z }; view.overlays.roadPlan({ polyline: pl, width: seg.width, style: seg.style, start: {}, end: {} }, !why);
         view.overlays.roadHandles(cps, handle); return;
+      }
+      if (tool.kind === 'captureVilla') { // framing an arrangement: the drag spans a rectangle on whole units
+        const g = view.groundAt(x, y); if (!g) return;
+        if (!dragging || !area) area = { x0: g.x, z0: g.z };
+        const r = v => Math.round(v);
+        area = { ...area, minX: r(Math.min(area.x0, g.x)), maxX: r(Math.max(area.x0, g.x)), minZ: r(Math.min(area.z0, g.z)), maxZ: r(Math.max(area.z0, g.z)) };
+        if (area.maxX - area.minX < 2) area.maxX = area.minX + 2; if (area.maxZ - area.minZ < 2) area.maxZ = area.minZ + 2;
+        const c = villaContents(captureVilla(state, area).villa); view.overlays.areaRect(area, c.buildings + c.paths > 0);
+        mouse = { x, y, in: true }; updateHover(); return;
       }
       if (drawMode()) { // drawing a road: collect the dragged path and preview the plan
         const g = view.groundAt(x, y); if (!g) return;
@@ -260,6 +323,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
         if (handleDrag && road?.segmentId) game.dispatch({ type: CMD.EditRoad, segmentId: road.segmentId, action: 'move', index: handle, position: handleDrag });
         handle = -1; handleDrag = null; view.overlays.hideRoadPlan(); showHandles(); onChange('selection'); return;
       }
+      if (tool.kind === 'captureVilla' && area) { const r = { minX: area.minX, maxX: area.maxX, minZ: area.minZ, maxZ: area.maxZ }; onChange('capture', r); return; }
       if (!drawMode() || !draft) return;
       const g = view.groundAt(x, y); if (g && Math.hypot(g.x - draft.at(-1).x, g.z - draft.at(-1).z) > .05) draft.push(g);
       const req = draft.length > 1 ? roadRequest(draft) : null; draft = null;
@@ -269,6 +333,12 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     },
     click(x, y, wasPainting, touch = false) {
       const { state } = snap();
+      if (villaTool()) {
+        const g = view.groundAt(x, y); if (!g) return; const pose = villaPoseAt(g);
+        if (touch) { pending = pose; onChange('tool'); updateHover(); return; } // touch: move the preview, confirm with ✓
+        placeVillaAt(pose); return;
+      }
+      if (tool.kind === 'captureVilla') return;
       if (building()) {
         if (drawMode()) return;                                                              // roads are drawn by dragging
         if (isRoadType(tool.type)) { if (!wasPainting) this.paint(x, y, false); return; }   // a tap places one tile
@@ -288,7 +358,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
       }
     },
     /** Places the pending (touch) preview. */
-    confirmPending() { if (pendingRoad) { const ok = buildRoad(pendingRoad); pendingRoad = null; onChange('tool'); return ok; } if (pending && building()) return place(pending); return false; },
+    confirmPending() { if (pending && villaTool()) return placeVillaAt(pending); if (pendingRoad) { const ok = buildRoad(pendingRoad); pendingRoad = null; onChange('tool'); return ok; } if (pending && building()) return place(pending); return false; },
     /** Escape / right click: drop a road being drawn or a pending preview, then the tool, then the selection. False when there was nothing to cancel. */
     cancel() { if (road) { if (editing) { editing = false; showHandles(); onChange('selection'); } else selectRoad(null); return true; }
       if (draft || pendingRoad) { draft = null; pendingRoad = null; view.overlays.hideRoadPlan(); view.overlays.roadMarkers(null); onChange('tool'); updateHover(); return true; } if (pending) { pending = null; onChange('tool'); updateHover(); return true; } if (tool.kind !== 'select') { setTool({ kind: 'select' }); return true; } if (selected) { select(0); return true; } return false; },
@@ -298,6 +368,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     },
     /** R (dir 1) / Shift+R (dir −1): turn the tool by a quarter (grid) or by the chosen step (free); otherwise turn the selection. */
     rotate(dir = 1) {
+      if (villaTool()) { const step = prefs().mode === 'free' ? stepRad() : Math.PI / 2; tool.rot = normAngle(snapAngle(tool.rot + dir * step, step)); if (pending) pending = { ...pending, rotation: tool.rot }; updateHover(); onChange('tool'); return; }
       if (building()) {
         if (freeMode()) { tool.rot = snapAngle(tool.rot + dir * stepRad(), stepRad()); if (pending) pending = { ...pending, rotation: tool.rot, snapped: null }; }
         else { tool.r = (((tool.manualR || !hover ? tool.r : angleToQuarter(hover.rotation)) + dir) % 4 + 4) % 4; tool.manualR = true; }
@@ -314,6 +385,18 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     armDemolish() { if (selected) { confirmDemo = true; onChange('selection'); } },
     demolishSelected() { if (!selected) return; if (!confirmDemo) { confirmDemo = true; onChange('selection'); } else demolish(selected); },
     buildType(type) { if (tool.kind === 'build' && tool.type === type && !tool.blueprint) return setTool({ kind: 'select' }); select(0); setTool({ kind: 'build', type }); },
+    /** Places a saved villa ({ id, version? }); `rotation` starts the preview turned (duplicating a placed one). */
+    placeVilla(ref, rotation = 0) {
+      const v = getVilla(snap().state, ref); if (!v) return false;
+      select(0); setTool({ kind: 'placeVilla', villa: { id: v.id, version: v.version }, rot: normAngle(rotation), seed: peekSeed(snap().state) }); return true;
+    },
+    /** Picks up a placed villa to move or turn it as one piece. */
+    startMoveGroup(id) {
+      const g = groupsOf(snap().state)[id]; if (!g) return false;
+      select(0); setTool({ kind: 'moveGroup', id, rot: g.rotation }); return true;
+    },
+    /** Frames an arrangement in town to save it as a villa (drag a rectangle). */
+    captureVilla() { select(0); setTool({ kind: 'captureVilla' }); },
     /** Arms the build tool with a saved design ({ id, version? }; the latest version when none is given). */
     buildBlueprint(ref) {
       const bp = getBlueprint(snap().state, ref); if (!bp) return false;
