@@ -53,10 +53,11 @@ test('height is continuous between vertices and buildings and roads follow the t
   assert.ok(Math.abs(mid - (a + b) / 2) < 1e-9, 'bilinear');
   const water = cellsOf(s, (px, pz) => groundAt(s, px, pz) === 'water' && Math.max(Math.abs(px), Math.abs(pz)) < 10)[0];
   assert.ok(water, 'the river'); assert.equal(canPlace(s, 'fr_trad', water, 0), 'water');
-  const steep = cellsOf(s, (px, pz) => Math.max(Math.abs(px), Math.abs(pz)) < 12 && canPlace(s, 'fr_trad', { x: px, z: pz }, 0) === 'slope')[0];
-  assert.ok(steep, 'the valley sides are too steep to build on in places');
-  const lo = Math.min(...[[-.5, -.5], [.5, -.5], [-.5, .5], [.5, .5]].map(([dx, dz]) => heightAt(s, steep.x + dx, steep.z + dz))), hi = Math.max(...[[-.5, -.5], [.5, -.5], [-.5, .5], [.5, .5]].map(([dx, dz]) => heightAt(s, steep.x + dx, steep.z + dz)));
-  assert.ok(hi - lo > .3, 'because the ground under it really rises');
+  // houses fit on the valley sides; a wide market does not where the ground rises across its lot
+  const steep = cellsOf(s, (px, pz) => Math.max(Math.abs(px), Math.abs(pz)) < 11 && canPlace(s, 'market', { x: px + .5, z: pz + .5 }, 0) === 'slope')[0];
+  assert.ok(steep, 'somewhere the valley side is too steep for a 2 × 2 market');
+  const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([dx, dz]) => heightAt(s, steep.x + .5 + dx, steep.z + .5 + dz));
+  assert.ok(Math.max(...corners) - Math.min(...corners) > .3, 'because the ground under it really rises');
   const snow = withMap('snowy', 11), rock = cellsOf(snow, (px, pz) => groundAt(snow, px, pz) === 'rock')[0];
   assert.ok(rock); assert.equal(canPlace(snow, 'fr_trad', rock, 0), 'rock');
   // roads: never through water, never too steep
@@ -104,5 +105,17 @@ test('a new generated map is safe empty and plays from the café', () => {
     assert.ok(g.dispatch({ type: CMD.Place, buildingType: 'cafe', position: { x: 0, z: 0 }, rotation: 0 }).ok, preset);
     const r = g.dispatch({ type: CMD.BuildRoad, points: [{ x: -1.6, z: 1.6 }, { x: 2.5, z: 1.6 }], style: 'road' });
     assert.ok(r.ok, `${preset}: ${r.reason}`);
+  }
+});
+
+// Regression: early maps were mostly too steep or flooded to build on (a valley seed refused every house near the café).
+test('every landscape is playable on any seed: buildable land, a level café plateau, the intended water', () => {
+  for (const preset of MAP_PRESETS) for (const seed of [1, 7, 99, 4242, 512490187]) {
+    const s = withMap(preset, seed), share = buildableShare(s), T = s.map.terrain;
+    assert.ok(share >= .6, `${preset}/${seed}: ${(share * 100).toFixed(0)}% buildable`);
+    assert.equal(canPlace(s, 'market', { x: 1, z: 1 }, 0), null, `${preset}/${seed}: a 2 × 2 building fits beside the café`);
+    let wet = 0, all = 0; for (let j = T.margin; j < T.margin + 32; j++) for (let i = T.margin; i < T.margin + 32; i++) { all++; if ('12'.includes(T.cells.flags[j * (T.n - 1) + i])) wet++; }
+    const want = preset === 'mixed' ? null : BIOMES[preset].water.cover;
+    if (want !== null) assert.ok(Math.abs(wet / all - want) <= .06, `${preset}/${seed}: water ${(wet / all * 100).toFixed(0)}% (wants ${want * 100}%)`);
   }
 });

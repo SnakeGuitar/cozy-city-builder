@@ -52,3 +52,13 @@ test('every named import exists in the module it comes from', () => {
     }
   }
 });
+
+// The browser refuses a whole module graph over one syntax error (for example a name declared twice in a scope),
+// and rendering modules never load under Node: parse every source file here.
+test('every source module parses', async () => {
+  const { execFileSync } = await import('node:child_process');
+  for (const f of files(root)) {
+    try { execFileSync(process.execPath, ['--check', f], { stdio: 'pipe' }); }
+    catch (e) { assert.fail(`${path.relative(root, f)} does not parse:\n${String(e.stderr).split('\n').slice(0, 5).join('\n')}`); }
+  }
+});

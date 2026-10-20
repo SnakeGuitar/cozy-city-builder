@@ -114,6 +114,12 @@ export const T = {
   }),
   gravel: () => mkTex('gravel', 128, 128, (x, w, h, r) => { wash(x, w, h, r, '#e6dfcf', .6, false); for (let i = 0; i < 1300; i++) { x.fillStyle = tone(r() < .5 ? '#9c9284' : '#fffaf0', 0, .45); x.beginPath(); x.arc(r() * w, r() * h, .6 + r() * 1.3, 0, 6.3); x.fill(); }
     x.strokeStyle = tone('#a09583', 0, .3); x.lineWidth = 1; for (let y = 6; y < h; y += 9) { x.beginPath(); for (let i = 0; i <= w; i += 8) x.lineTo(i, y + Math.sin(i * .1) * 1.2); x.stroke(); } }),
+  /** Open water: a soft wash with ripples and no darkened edges (it repeats seamlessly). */
+  waterWash: () => mkTex('waterWash', 256, 256, (x, w, h, r) => {
+    wash(x, w, h, r, '#cfe7e1', .9, false);
+    x.strokeStyle = 'rgba(255,255,255,.35)'; x.lineWidth = 1.4;
+    for (let i = 0; i < 26; i++) { const cx = r() * w, cy = r() * h, l = 10 + r() * 22; for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) { x.beginPath(); x.moveTo(cx + ox - l, cy + oy); x.quadraticCurveTo(cx + ox, cy + oy - 3, cx + ox + l, cy + oy); x.stroke(); } }
+  }),
   grass: () => mkTex('grass', 256, 256, (x, w, h, r) => { wash(x, w, h, r, '#a9bf8f', 1.3, false); for (let i = 0; i < 260; i++) { const sx = r() * w, sy = r() * h; x.strokeStyle = tone(r() < .5 ? C.leafD : C.leafL, 0, .35); x.lineWidth = 1.2; x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx + r() * 4 - 2, sy - 4 - r() * 4); x.stroke(); } }),
   soil: () => mkTex('soil', 128, 128, (x, w, h, r) => { wash(x, w, h, r, C.soil, 1.2); x.strokeStyle = tone(C.ink, 0, .35); for (let y = 10; y < h; y += 18) { x.beginPath(); x.moveTo(0, y); for (let i = 0; i <= w; i += 16) x.lineTo(i, y + Math.sin(i * .2 + y) * 2); x.stroke(); } }),
   glass: () => mkTex('glass', 64, 64, (x, w, h, r) => { const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#d3e4df'); g.addColorStop(1, '#8fb1ac'); x.fillStyle = g; x.fillRect(0, 0, w, h);

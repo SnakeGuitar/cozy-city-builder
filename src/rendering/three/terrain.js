@@ -3,17 +3,17 @@
 // The classic meadow (no terrain) keeps the original painted ground from scene.js. Rendering only.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { C, T, waterMat } from './art.js';
+import { C, T } from './art.js';
 import { BIOMES, BIOME_IDS, FLORA_KINDS } from '../../core/config/biomes.js';
 import { heightAt, terrainDecor, hash2 } from '../../core/domain/terrain.js';
 import { obbOf, queryArea } from '../../core/domain/space.js';
 import { pointInObb } from '../../core/domain/geometry.js';
 import { onRoad } from '../../core/domain/roads.js';
 
-const PAPER = new THREE.Color('#efe3c6');
+const PAPER = new THREE.Color('#efe3c6'), PAL_TMP = new THREE.Color();
 /** Biome light: multipliers for the sun and sky colours, and the hemisphere's ground bounce. */
 export const LIGHT_TINTS = {
-  warm: { sun: '#ffffff', sky: '#ffffff' }, bright: { sun: '#fffaf0', sky: '#fffdf6' }, golden: { sun: '#ffe2b8', sky: '#fff0dc' },
+  warm: { sun: '#ffffff', sky: '#ffffff' }, bright: { sun: '#fffaf0', sky: '#fffdf6' }, golden: { sun: '#fff0d8', sky: '#fff6ea' },
   misty: { sun: '#e9eef0', sky: '#eef2f0' }, cold: { sun: '#dfe9ff', sky: '#e6eeff' },
 };
 
@@ -55,8 +55,9 @@ export function createTerrainView(sc) {
   const { scene } = sc;
   let group = null, flora = [], current = null, mist = [], hideKey = '';
   const iceMat = new THREE.MeshLambertMaterial({ color: '#e6f0f6', emissive: new THREE.Color('#9fc4d8'), emissiveIntensity: .12 });
-  const seaMat = waterMat.clone(); seaMat.transparent = true; seaMat.opacity = .88; seaMat.depthWrite = false;
-  const groundMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: T.paint('#f4ecdc') });
+  // water: a soft wash without painted cell edges, mapped in world space so it never shows a grid
+  const seaMat = new THREE.MeshLambertMaterial({ map: T.waterWash(), color: '#b9dcd4', emissive: new THREE.Color('#4f8f88'), emissiveIntensity: .18, transparent: true, opacity: .86, depthWrite: false });
+  const groundMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: T.paint('#fbf8f2') }); // a near-white wash: the vertex colours carry the hue
 
   function dispose() {
     if (group) { scene.remove(group); group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
@@ -65,11 +66,17 @@ export function createTerrainView(sc) {
   /** Ground colour of a vertex: the biome's palette varied by noise, sand and mud near water, snow, rock. */
   function vertexColour(state, x, z, out) {
     const t = state.map.terrain, N = t.n - 1, i = Math.max(0, Math.min(N - 1, Math.floor(x - t.origin))), j = Math.max(0, Math.min(N - 1, Math.floor(z - t.origin))), k = j * N + i;
-    const id = BIOME_IDS[t.cells.biome.charCodeAt(k) - 97], B = BIOMES[id], pal = B.look.ground, seed = state.map.seed;
+    const id = BIOME_IDS[t.cells.biome.charCodeAt(k) - 97], seed = state.map.seed;
     const n = hash2(Math.floor(x * 2), Math.floor(z * 2), seed + 3) * .5 + hash2(Math.floor(x * .5), Math.floor(z * .5), seed + 4) * .5;
-    out.set(pal[Math.min(pal.length - 1, Math.floor(n * pal.length))]);
+    // the palette colour, blended with the biomes of nearby cells so different landscapes fade into each other
+    let r = 0, g = 0, b = 0, wsum = 0;
+    for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+      const a = Math.max(0, Math.min(N - 1, i + di)), c = Math.max(0, Math.min(N - 1, j + dj)), pal = BIOMES[BIOME_IDS[t.cells.biome.charCodeAt(c * N + a) - 97]].look.ground, w = 1 / (1 + di * di + dj * dj);
+      PAL_TMP.set(pal[Math.min(pal.length - 1, Math.floor(n * pal.length))]); r += PAL_TMP.r * w; g += PAL_TMP.g * w; b += PAL_TMP.b * w; wsum += w;
+    }
+    out.setRGB(r / wsum, g / wsum, b / wsum);
     const shore = +t.cells.waterDist[k], flag = t.cells.flags[k];
-    if (id === 'beach' && shore <= 2) out.lerp(new THREE.Color('#f1e3b8'), shore <= 1 ? .9 : .5);
+    if (id === 'beach' && shore <= 3) out.lerp(new THREE.Color('#f1e3b8'), [1, .92, .65, .3][shore]); // sand along the shore, dunes behind
     else if (shore === 0 && flag === '1') out.lerp(new THREE.Color(id === 'beach' ? '#e2d3a3' : '#8a7a5a'), .55);
     else if (shore === 1 && id === 'wetland') out.lerp(new THREE.Color('#6f8a5a'), .4);
     if (flag === '3') out.lerp(new THREE.Color('#b3ada2'), .7);
@@ -89,19 +96,24 @@ export function createTerrainView(sc) {
       uv.setXY(v, x / 4, z / 4);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
+    // painted hillshade: slopes turned from the light darker, high ground a touch lighter, so relief reads from above
+    const nrm = geo.attributes.normal, light = new THREE.Vector3(-.55, .75, -.35).normalize(), nv = new THREE.Vector3();
+    for (let v = 0; v < pos.count; v++) {
+      nv.fromBufferAttribute(nrm, v); const shade = .78 + .3 * Math.max(0, nv.dot(light)) + Math.min(.08, Math.max(-.06, pos.getY(v) * .03));
+      col[v * 3] = Math.min(1, col[v * 3] * shade); col[v * 3 + 1] = Math.min(1, col[v * 3 + 1] * shade); col[v * 3 + 2] = Math.min(1, col[v * 3 + 2] * shade);
+    }
     const ground = new THREE.Mesh(geo, groundMat); ground.receiveShadow = true; ground.renderOrder = -1; group.add(ground);
     // a skirt of paper below the edge so the map never shows its underside
     const skirt = new THREE.Mesh(new THREE.PlaneGeometry(size * 3, size * 3).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: PAPER }));
     skirt.position.y = Math.min(...t.heights) / 1000 - .05; group.add(skirt);
-    // water and ice, one quad per wet cell at the water surface
-    const water = [], ice = [];
-    for (let j = 0; j < t.n - 1; j++) for (let i = 0; i < t.n - 1; i++) {
-      const f = t.cells.flags[j * (t.n - 1) + i]; if (f !== '1' && f !== '2') continue;
-      const x = t.origin + i + .5, z = t.origin + j + .5, top = Math.max(...[[0, 0], [1, 0], [0, 1], [1, 1]].map(([a, b]) => t.heights[(j + b) * t.n + i + a] / 1000));
-      const y = Math.min(t.waterLevel, top + .02) + .01;
-      (f === '1' ? water : ice).push(new THREE.PlaneGeometry(1.02, 1.02).rotateX(-Math.PI / 2).translate(x, y, z));
-    }
-    if (water.length) { const m = new THREE.Mesh(mergeGeometries(water), seaMat); m.renderOrder = 1; group.add(m); }
+    // water and ice: one flat surface at the water level over the wet cells and their neighbours; the ground
+    // rises through it at the shore, so shorelines follow the terrain smoothly. Cells never overlap (no seams).
+    const water = [], ice = [], CN = t.n - 1, wetKind = new Map();
+    for (let j = 0; j < CN; j++) for (let i = 0; i < CN; i++) { const f = t.cells.flags[j * CN + i]; if (f !== '1' && f !== '2') continue;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= CN || b >= CN) continue; const k = b * CN + a; if (!wetKind.has(k) || f === '1') wetKind.set(k, f); } }
+    for (const [k, f] of wetKind) { const i = k % CN, j = Math.floor(k / CN); (f === '1' ? water : ice).push(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(t.origin + i + .5, t.waterLevel + .01, t.origin + j + .5)); }
+    const worldUv = g => { const p = g.attributes.position, uv = g.attributes.uv; for (let v = 0; v < p.count; v++) uv.setXY(v, p.getX(v) / 7, p.getZ(v) / 7); return g; };
+    if (water.length) { const m = new THREE.Mesh(worldUv(mergeGeometries(water)), seaMat); m.renderOrder = 1; group.add(m); }
     if (ice.length) { const m = new THREE.Mesh(mergeGeometries(ice), iceMat); m.receiveShadow = true; group.add(m); }
     // vegetation: one instanced mesh per kind
     const decor = terrainDecor(state), byKind = new Map(FLORA_KINDS.map(k => [k, []]));

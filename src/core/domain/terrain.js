@@ -68,6 +68,34 @@ function regionWeights(regions, x, z, size) {
 }
 
 /**
+ * Keeps the playable map usable: neighbouring vertices inside it may differ by at most RELAX_STEP, so a street can climb
+ * any slope and a 1 × 1 house fits anywhere dry (two steps across its diagonal stay under MAX_BUILD_STEP). Pairs that differ more move toward each other, in a fixed order, until none
+ * does (or a pass limit). The scenery margin keeps its full relief. Deterministic.
+ */
+export const RELAX_STEP = .16;
+function relaxSlopes(h, n, margin, size) {
+  const lo = margin - 1, hi = margin + size + 1, inside = (i, j) => i >= lo && j >= lo && i <= hi && j <= hi;
+  // the café's plateau is pinned: steep ground around it gives way instead of tilting it
+  const c = (n - 1) / 2, pinned = v => Math.hypot(v % n - c, Math.floor(v / n) - c) <= size * .08;
+  for (let pass = 0; pass < 120; pass++) {
+    let moved = false;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      if (!inside(i, j)) continue;
+      for (const [a, b] of [[i + 1, j], [i, j + 1]]) {
+        if (a >= n || b >= n || !inside(a, b)) continue;
+        const p = j * n + i, q = b * n + a, d = h[p] - h[q];
+        if (Math.abs(d) <= RELAX_STEP + 1e-9) continue;
+        const pp = pinned(p), pq = pinned(q); if (pp && pq) continue;
+        const excess = (Math.abs(d) - RELAX_STEP) * Math.sign(d);
+        if (pp) h[q] += excess; else if (pq) h[p] -= excess; else { h[p] -= excess / 2; h[q] += excess / 2; }
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+/**
  * Generates a map's terrain. Pure: same inputs, same output, on any machine.
  * @param {{ seed: number, size: number, preset: string, version?: number }} p
  */
@@ -80,29 +108,51 @@ export function generateTerrain({ seed, size, preset, version = GENERATOR_VERSIO
   const weightsAt = (x, z) => regions ? regionWeights(regions, x, z, size) : [1];
   const idsAt = regions ? regions.map(r => r.biome) : [preset];
   const raw = (x, z) => { const w = weightsAt(x, z); return idsAt.reduce((s, id, i) => s + w[i] * presetHeight(id, x, z, size, seed), 0); };
-  const levelAt = (x, z) => { const w = weightsAt(x, z); return idsAt.reduce((s, id, i) => s + w[i] * BIOMES[id].water.level, 0); };
-  // the town centre is levelled to dry, gentle ground so the café always has a home
-  const centre = Math.max(raw(0, 0), levelAt(0, 0) + .45, 0);
+  // the town centre is levelled to gentle ground so the café always has a home (the water level stays below it)
+  const centre = Math.max(raw(0, 0), 0);
   const heights = new Array(n * n);
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const x = origin + i, z = origin + j, k = smooth(size * .07, size * .2, Math.hypot(x, z));
     let h = raw(x, z) * k + centre * (1 - k);
     if (Math.max(Math.abs(x), Math.abs(z)) > half) h += (Math.max(Math.abs(x), Math.abs(z)) - half) * .05; // scenery rises a little past the edge
-    heights[j * n + i] = Math.round(h * 1000);
+    heights[j * n + i] = h;
   }
+  relaxSlopes(heights, n, M, size);
+  const Hf = (i, j) => heights[j * n + i], avgF = (i, j) => (Hf(i, j) + Hf(i + 1, j) + Hf(i, j + 1) + Hf(i + 1, j + 1)) / 4;
+  // the water level gives each landscape its share of water (a sea, a river, pools), whatever the seed: it is the
+  // height below which `cover` of the playable cells lie
+  const playable = []; let coverSum = 0;
+  for (let j = M; j < M + size; j++) for (let i = M; i < M + size; i++) {
+    playable.push(avgF(i, j)); const w = weightsAt(origin + i + .5, origin + j + .5);
+    coverSum += idsAt.reduce((s, id, q) => s + w[q] * BIOMES[id].water.cover, 0);
+  }
+  playable.sort((a, b) => a - b);
+  const cover = coverSum / playable.length;
+  const level = cover > 0 ? playable[Math.max(0, Math.min(playable.length - 1, Math.floor(cover * playable.length) - 1))] + 1e-4 : playable[0] - 1;
+  // the café's ground rises gently above the water (never the other way round, so every landscape keeps its water)
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = 1 - smooth(size * .08, size * .17, Math.hypot(origin + i, origin + j)), v = j * n + i;
+    if (k > 0) heights[v] = Math.max(heights[v], heights[v] * (1 - k) + (level + .35) * k);
+  }
+  relaxSlopes(heights, n, M, size);
+  for (let v = 0; v < heights.length; v++) heights[v] = Math.round(heights[v] * 1000);
   const H = (i, j) => heights[j * n + i] / 1000;
+  const cellAvg = (i, j) => (H(i, j) + H(i + 1, j) + H(i, j + 1) + H(i + 1, j + 1)) / 4;
   // cells: water, climate, biome, rock
   const biome = [], flags = [], moisture = [], temperature = [], wet = new Array(cellsN * cellsN).fill(false);
   for (let j = 0; j < cellsN; j++) for (let i = 0; i < cellsN; i++) {
-    const x = origin + i + .5, z = origin + j + .5, w = weightsAt(x, z), main = idsAt[w.indexOf(Math.max(...w))];
-    const avg = (H(i, j) + H(i + 1, j) + H(i, j + 1) + H(i + 1, j + 1)) / 4;
-    const water = avg < levelAt(x, z);
+    const x = origin + i + .5, z = origin + j + .5, w = weightsAt(x, z);
+    // the biome that wins a cell: the strongest region, with noise so region borders wander instead of running straight
+    const jw = regions ? w.map((v, q) => v + (fbm(x * .18, z * .18, seed + 201 + q * 17, 2) - .5) * .35) : w, main = idsAt[jw.indexOf(Math.max(...jw))];
+    const avg = cellAvg(i, j), water = avg < level;
     wet[j * cellsN + i] = water;
     const P = BIOMES[main];
     const m = Math.max(0, Math.min(.999, idsAt.reduce((s, id, q) => s + w[q] * BIOMES[id].moisture, 0) + (fbm(x * .08, z * .08, seed + 31, 3) - .5) * .5));
     const t = Math.max(0, Math.min(.999, idsAt.reduce((s, id, q) => s + w[q] * BIOMES[id].temperature, 0) + (fbm(x * .06, z * .06, seed + 41, 3) - .5) * .3 - Math.max(0, avg) * .06));
     const slope = Math.max(H(i, j), H(i + 1, j), H(i, j + 1), H(i + 1, j + 1)) - Math.min(H(i, j), H(i + 1, j), H(i, j + 1), H(i + 1, j + 1));
-    const rocky = !water && P.rocks > 0 && Math.hypot(x, z) > size * .16 && hash2(i, j, seed + 81) < P.rocks * Math.min(1, slope / .5 + (fbm(x * .2, z * .2, seed + 91, 2) > .66 ? .6 : 0));
+    // outcrops gather in a few clusters (where a slow noise peaks), steeper ground more likely; never by the café
+    const cluster = fbm(x * .16, z * .16, seed + 91, 2) - (1 - P.rocks * 1.8);
+    const rocky = !water && P.rocks > 0 && Math.hypot(x, z) > size * .16 && cluster > 0 && hash2(i, j, seed + 81) < Math.min(.9, cluster * 6 + slope);
     biome.push(String.fromCharCode(97 + BIOME_IDS.indexOf(main)));
     flags.push(water ? (P.water.kind === 'ice' ? '2' : '1') : rocky ? '3' : '0');
     moisture.push(String(Math.floor(m * 10))); temperature.push(String(Math.floor(t * 10)));
@@ -113,7 +163,7 @@ export function generateTerrain({ seed, size, preset, version = GENERATOR_VERSIO
     const k = j * cellsN + i; if (dist[k] === 0) continue;
     for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < cellsN && b < cellsN) dist[k] = Math.min(dist[k], dist[b * cellsN + a] + 1); }
   }
-  return { n, origin, margin: M, waterLevel: levelAt(0, 0), heights,
+  return { n, origin, margin: M, waterLevel: level, heights,
     cells: { biome: biome.join(''), flags: flags.join(''), moisture: moisture.join(''), temperature: temperature.join(''), waterDist: dist.join('') } };
 }
 
