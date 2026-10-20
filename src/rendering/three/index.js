@@ -18,7 +18,8 @@ import { createTerrainView } from './terrain.js';
 import { buildingTop, buildingCenter, tileFromWorld } from './coords.js';
 import { variantOf } from './models/index.js';
 import { planViewUpdates } from '../../presentation/viewUpdates.js';
-export { renderThumbnails } from './thumbnails.js';
+export { renderThumbnails, createBlueprintThumbnails } from './thumbnails.js';
+export { createEditorView } from './editorView.js';
 
 /** `time(name, fn)` measures named pieces of work (rebuilds) for the performance overlay; optional. */
 export function createThreeView(container, { time = (name, fn) => fn() } = {}) {

@@ -78,11 +78,11 @@ export function createMenu({ settings, actions }) {
     /** info: { hasNormal, hasSandbox, mode } */
     render(nav, info) {
       lastNav = nav; lastInfo = info;
-      const open = nav.screen !== 'playing' || !!nav.confirm;
+      const open = (nav.screen !== 'playing' && nav.screen !== 'editor') || !!nav.confirm; // the editor draws its own screen
       layer.hidden = !open; layer.dataset.screen = nav.screen;
       document.body.classList.toggle('in-menu', nav.screen === 'main_menu' || (nav.screen !== 'playing' && nav.back === 'main_menu') || nav.screen === 'credits');
       if (!open) { lastKey = ''; return; }
-      const html = (nav.screen === 'playing' ? '' : screenHtml(nav, info)) + (nav.confirm ? confirmHtml(nav.confirm) : '');
+      const html = (nav.screen === 'playing' || nav.screen === 'editor' ? '' : screenHtml(nav, info)) + (nav.confirm ? confirmHtml(nav.confirm) : '');
       const key = html + getLanguage();
       // keep the seed field's caret when the screen redraws around it
       const typing = document.activeElement?.id === 'setup-seed';

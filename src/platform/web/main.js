@@ -5,7 +5,9 @@ import { simulationRunning, worldVisible } from '../../application/navigation.js
 import { CMD } from '../../core/commands/commands.js';
 import { mulberry32 } from '../../core/util/random.js';
 import { createCameraController } from '../../presentation/camera/controller.js';
-import { createThreeView, renderThumbnails } from '../../rendering/three/index.js';
+import { createThreeView, renderThumbnails, createBlueprintThumbnails, createEditorView } from '../../rendering/three/index.js';
+import { createBlueprintEditor, recoverDraft } from '../../application/blueprintEditor.js';
+import { createEditorUI } from '../../ui/dom/editor.js';
 import { createInteraction } from '../../ui/interaction.js';
 import { createDomUI, normalizeSettings, normalizeSlotUi } from '../../ui/dom/index.js';
 import { createMenu } from '../../ui/dom/menu.js';
@@ -43,7 +45,16 @@ const requestSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() =
 
 let ui = null;
 const interaction = createInteraction({ game, view, onChange: kind => ui && ui.onInteraction(kind), placement: () => slot.place });
-ui = createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave });
+const bpThumb = createBlueprintThumbnails();
+/** The building editor: a screen over the paused town (application/navigation.js 'editor'). */
+const editorUI = createEditorUI({ root: document.getElementById('editor'), game, reducedMotion,
+  openModel: opts => createBlueprintEditor({ ...opts, storage }), createView: (el, opts) => createEditorView(el, opts), recover: () => recoverDraft(storage),
+  toast: html => ui.toast(html), onSaved: () => requestSave(), onClose: () => { app.navigate({ type: 'close_editor' }); ui.renderAll(); } });
+function openEditor(what = {}) {
+  if (!playing()) return;
+  interaction.setTool({ kind: 'select' }); app.navigate({ type: 'open_editor', editor: what }); editorUI.open(what);
+}
+ui = createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave, bpThumb, openEditor });
 const playing = () => simulationRunning(app.nav);
 const menu = createMenu({ settings, actions: {
   continue: () => app.continueGame(), newGame: () => app.setupNewGame('normal'), sandbox: () => (app.hasSave('sandbox') ? app.openSandbox() : app.setupNewGame('sandbox')),
@@ -61,7 +72,7 @@ function renderMenu() { menu.render(app.nav, { hasNormal: app.hasSave('normal'),
 document.getElementById('b-menu').onclick = () => app.navigate({ type: 'pause' });
 document.getElementById('b-set').onclick = () => app.navigate({ type: 'open_settings' });
 const input = bindInput({ canvas: view.canvas, interaction, camera, game, audio, isPlaying: playing, onTogglePlacement: () => ui.togglePlacement(), onTogglePerf: () => togglePerf(),
-  onEscape: () => { if (app.nav.screen === 'playing') app.navigate({ type: 'pause' }); else if (app.nav.screen !== 'main_menu' || app.nav.confirm) app.navigate({ type: 'back' }); } });
+  onEscape: () => { if (app.nav.screen === 'editor') { editorUI.requestClose(); return; } if (app.nav.screen === 'playing') app.navigate({ type: 'pause' }); else if (app.nav.screen !== 'main_menu' || app.nav.confirm) app.navigate({ type: 'back' }); } });
 
 ui.applyLanguage(settings.lang);
 renderMenu();
@@ -101,6 +112,7 @@ function frame(t) {
     else if (e.type === 'save_rejected' || (e.type === 'save_loaded' && e.warnings.length)) console.warn('save:', e);
   }
   if (events.length) perf.time('events', () => { view.applyEvents(events, snap.state); ui.onEvents(events); }, now);
+  if (app.nav.screen === 'editor') perf.time('render', () => editorUI.frame(), now);
   if (worldVisible(app.nav)) {
     const sdt = playing() && !snap.state.clock.paused ? rdt * snap.state.clock.speed : 0;
     const light = perf.time('render', () => view.frame(rdt, sdt, clock, snap.state, snap.derived, camera.update(rdt)), now);
@@ -114,6 +126,6 @@ function frame(t) {
 requestAnimationFrame(frame);
 
 // small debugging handle (read-only use from the console and the browser checks)
-window.__villa = { app, game, view, camera, interaction, settings, ui, perf, togglePerf,
+window.__villa = { app, game, view, camera, interaction, settings, ui, perf, togglePerf, editorUI, openEditor,
   /** Fills the current game with the benchmark town (use in a sandbox): returns what was built. */
   bench: () => buildBenchmarkTown(game) };

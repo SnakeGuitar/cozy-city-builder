@@ -1,6 +1,7 @@
 // Panel for the selected building: what it does, its numbers, and who it affects.
 import { DEFS, SVC_GROUPS, LANDMARK, canUpgrade } from '../../core/config/catalog.js';
 import { refundFor, upgradePreview } from '../../core/commands/commands.js';
+import { getBlueprint, blueprintsOf, blueprintExtraCost } from '../../core/domain/blueprint.js';
 import { statsOf } from '../../core/domain/state.js';
 import { $, ico, meter, pct, KIND_KEY } from './dom.js';
 import { t, fmt } from './i18n.js';
@@ -51,8 +52,13 @@ export function renderSelectionPanel({ state, derived }, id, confirmDemo, action
   for (const o of Object.values(derived.byId)) for (const s of o.src) if (s.from === id) { const key = o.type + s.k; const a = agg.get(key) || { n: 0, type: o.type, s }; a.n++; agg.set(key, a); }
   const giv = [...agg.values()].map(a => li((a.n > 1 ? a.n + ' × ' : '') + t('n_' + a.type), a.s));
   const tag = (d.fam ? ` · ${t('fam_' + d.fam)} · ${t('era_' + d.era)}` : '') + (canUpgrade(b.type) ? ` · ${stars(b.tier || 1, DEFS[b.type].tiers.length)}` : '');
+  // a custom building: its design, the version it was built from, and a newer version to remodel to
+  const bp = b.blueprint && getBlueprint(state, b.blueprint), entry = bp && blueprintsOf(state)[bp.id];
+  const newer = entry && entry.latest > bp.version ? entry.versions[entry.latest] : null;
+  const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const design = bp ? `<div class="design"><span>${t('ed_design')}: <b>${esc(bp.name)}</b> · v${bp.version}</span><div class="actions"><button class="btn" id="p-edit">${t('ed_edit')}</button>${newer ? `<button class="btn up" id="p-remodel">${t('ed_remodel', { n: newer.version })}${(() => { const c = blueprintExtraCost(newer) - blueprintExtraCost(bp); return c > 0 ? ` · ${ico('i-coin', 'ico')}${c}` : ''; })()}</button>` : ''}</div></div>` : '';
   const html = `<button class="close" id="p-close" aria-label="${t('close')}">×</button>
-    <div class="kind"><span class="kdot kc-${k}"></span>${t(KIND_KEY[k])}${tag} · ${d.s}×${d.s}</div><div class="ttl">${t('n_' + b.type)}</div><div class="desc">${t('d_' + b.type)}</div>${status}
+    <div class="kind"><span class="kdot kc-${k}"></span>${t(KIND_KEY[k])}${tag} · ${d.s}×${d.s}</div><div class="ttl">${bp ? esc(bp.name) : t('n_' + b.type)}</div><div class="desc">${bp ? t('ed_basedOn', { b: t('n_' + b.type) }) + ' ' : ''}${t('d_' + b.type)}</div>${status}${design}
     ${kv ? `<div class="kv">${kv}</div>` : ''}
     ${rec2.length ? `<div class="rel"><h4>${t('receives')}</h4><ul>${rec2.join('')}</ul></div>` : ''}
     ${giv.length ? `<div class="rel"><h4>${t('gives')}</h4><ul>${giv.join('')}</ul></div>` : ''}
@@ -68,6 +74,8 @@ export function renderSelectionPanel({ state, derived }, id, confirmDemo, action
   if ($('p-up')) $('p-up').onclick = () => actions.upgrade(true);
   if ($('p-up-no')) $('p-up-no').onclick = () => actions.upgrade(false);
   if ($('p-up-yes')) $('p-up-yes').onclick = actions.confirmUpgrade;
+  if ($('p-edit')) $('p-edit').onclick = () => actions.editDesign?.(b.blueprint.id);
+  if ($('p-remodel')) $('p-remodel').onclick = () => actions.remodel?.(b.id, newer.version);
 }
 
 /** Relation links for the selected building as plain data: [fromId, toId, kind, labelHtml, chipOnId]. */

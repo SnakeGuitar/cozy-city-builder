@@ -11,13 +11,17 @@ import { canPlace, autoFace, tileToPose } from '../core/domain/space.js';
 import { quarterToAngle, angleToQuarter, normAngle } from '../core/domain/geometry.js';
 import { snapPosition, snapAngle, snapToRoad, snapToBuildings } from '../core/domain/snap.js';
 import { statsOf } from '../core/domain/state.js';
-import { CMD, peekSeed, refundFor, costFor, canAfford, roadCostFor } from '../core/commands/commands.js';
+import { CMD, peekSeed, refundFor, costFor, roadCostFor, blueprintPriceFor, canAffordCoins, blueprintBlocker } from '../core/commands/commands.js';
+import { getBlueprint, entranceOf } from '../core/domain/blueprint.js';
+import { FACE_ANGLE } from '../core/config/modules.js';
 import { planTrace, roadPieceAt, checkCurve } from '../core/domain/roadPlan.js';
 import { traceReachesCafe } from '../core/simulation/roads.js';
 import { roadsOf, segmentControl, curvePoints, polylineLength, segmentPolyline, pointAt } from '../core/domain/roads.js';
 import { simplifyPath } from '../presentation/input/path.js';
 import { $ } from './dom/dom.js';
 import { t } from './dom/i18n.js';
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /** Placement preferences (saved with each game's UI data). */
 export const ROAD_SHAPES = Object.freeze(['straight', 'l', 'curve']);
@@ -87,19 +91,23 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
   const canAffordRoad = (state, cost) => game.rules().unlimitedMoney || state.coins >= cost;
   function buildRoad(req) { const res = game.dispatch({ type: CMD.BuildRoad, ...req }); view.overlays.hideRoadPlan(); view.overlays.roadMarkers(null); return res.ok; }
   const stepRad = () => prefs().step * Math.PI / 180;
+  /** The saved blueprint version the build tool places (custom buildings), or null. */
+  const toolBlueprint = () => tool.blueprint ? getBlueprint(snap().state, tool.blueprint) : null;
+  /** How far a custom building's entrance side is turned from its front: it faces the street with its door. */
+  const faceOffset = () => { const bp = tool.kind === 'build' && toolBlueprint(), e = bp && entranceOf(bp); return e ? FACE_ANGLE[e.side] : 0; };
 
   /** Pose of the current tool on grid cell (x, y): quarter turn chosen by hand (R) or facing the road. */
   function gridPose(type, x, y) {
     const state = snap().state;
     if (isRoadType(type)) return tileToPose(state, type, x, y, 0);
-    const r = tool.manualR ? tool.r : angleToQuarter(autoFace(state, type, tileToPose(state, type, x, y, tool.r).position, quarterToAngle(tool.r)));
+    const fa = faceOffset(), r = tool.manualR ? tool.r : angleToQuarter(normAngle(autoFace(state, type, tileToPose(state, type, x, y, tool.r).position, normAngle(quarterToAngle(tool.r) + fa)) - fa));
     return tileToPose(state, type, x, y, r);
   }
   /** Pose of the current tool for a free ground point, after the snaps that are switched on. */
   function freePose(type, ground) {
     const state = snap().state, p = prefs(), ignore = tool.kind === 'move' ? tool.id : 0;
     let pose = { position: p.snapGrid ? snapPosition(ground, .5) : { x: ground.x, z: ground.z }, rotation: tool.rot }, snapped = null;
-    if (p.snapRoad) { const r = snapToRoad(state, type, pose); if (r && !canPlace(state, type, r.position, r.rotation, ignore)) { pose = r; snapped = 'road'; } }
+    if (p.snapRoad) { const r0 = snapToRoad(state, type, pose), r = r0 && { ...r0, rotation: normAngle(r0.rotation - faceOffset()) }; if (r && !canPlace(state, type, r.position, r.rotation, ignore)) { pose = r; snapped = 'road'; } }
     if (!snapped && p.snapBuild) { const b = snapToBuildings(state, type, pose, .6, ignore); if (b && !canPlace(state, type, b.position, b.rotation, ignore)) { pose = b; snapped = 'building'; } }
     return { position: pose.position, rotation: pose.rotation, snapped };
   }
@@ -138,7 +146,7 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
       if (res.ok) { setTool({ kind: 'select' }); select(id); }
       return res.ok;
     }
-    const res = game.dispatch({ type: CMD.Place, buildingType: tool.type, position: pose.position, rotation: pose.rotation, autoFace: false });
+    const res = game.dispatch({ type: CMD.Place, buildingType: tool.type, ...(tool.blueprint ? { blueprint: tool.blueprint } : {}), position: pose.position, rotation: pose.rotation, autoFace: false });
     if (res.ok) { pending = null; if (DEFS[tool.type].unique) setTool({ kind: 'select' }); else onChange('tool'); }
     return res.ok;
   }
@@ -149,15 +157,16 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     const { state } = snap(), d = DEFS[tool.type];
     const moving = tool.kind === 'move' && state.buildings[tool.id];
     const seed = moving ? moving.seed : peekSeed(state);
-    const why = canPlace(state, tool.type, pose.position, pose.rotation, moving ? tool.id : 0) || (tool.kind === 'build' && !canAfford(state, tool.type) ? 'notEnough' : null);
-    const cost = costFor(state, tool.type);
-    view.overlays.ghost(tool.type, view.variantOf(tool.type, seed), pose.position, pose.rotation, !why, time, moving ? moving.tier : 1);
+    const bp = tool.kind === 'build' ? toolBlueprint() : moving?.blueprint ? getBlueprint(state, moving.blueprint) : null;
+    const cost = bp && tool.kind === 'build' ? blueprintPriceFor(state, bp) : costFor(state, tool.type);
+    const why = (tool.blueprint && tool.kind === 'build' && blueprintBlocker(state, tool.blueprint)) || canPlace(state, tool.type, pose.position, pose.rotation, moving ? tool.id : 0) || (tool.kind === 'build' && !canAffordCoins(state, cost) ? 'notEnough' : null);
+    view.overlays.ghost(tool.type, view.variantOf(tool.type, seed), pose.position, pose.rotation, !why, time, moving ? moving.tier : 1, bp);
     view.overlays.footprint(tool.type, pose.position, pose.rotation, !why); view.overlays.range(tool.type, pose.position, pose.rotation, moving ? statsOf(moving).r : 0);
     if (!at) return why;
     const hint = isRoadType(tool.type) ? t('roadsHint') : freeMode() ? t(tool.kind === 'move' ? 'movingFree' : 'placingFree') : t(tool.kind === 'move' ? 'moving' : 'placing');
     const snapTag = pose.snapped ? ` · <span class="ok">${t('snapped_' + pose.snapped)}</span>` : '';
     tip.hidden = false;
-    tip.innerHTML = `${t('n_' + tool.type)} ${tool.kind === 'build' ? `· ${cost ? cost : t('free')} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>${d.upkeep ? ` · −${d.upkeep}${t('perMin')}` : ''}` : ''}${why ? ` · <span class="bad">${t(why)}</span>` : snapTag}<br><span style="font-weight:600;opacity:.7">${hint}</span>`;
+    tip.innerHTML = `${bp ? esc(bp.name) : t('n_' + tool.type)} ${tool.kind === 'build' ? `· ${cost ? cost : t('free')} <svg class="ico" style="display:inline;width:13px;height:13px;vertical-align:-2px" viewBox="0 0 20 20"><use href="#i-coin"/></svg>${d.upkeep ? ` · −${d.upkeep}${t('perMin')}` : ''}` : ''}${why ? ` · <span class="bad">${t(why)}</span>` : snapTag}<br><span style="font-weight:600;opacity:.7">${hint}</span>`;
     return why;
   }
   function updateHover() {
@@ -304,6 +313,12 @@ export function createInteraction({ game, view, onChange, placement = () => DEFA
     placementChanged() { if (tool.kind === 'move' || tool.kind === 'build') { if (prefs().mode === 'free' && hover) tool.rot = hover.rotation; pending = null; } updateHover(); onChange('tool'); },
     armDemolish() { if (selected) { confirmDemo = true; onChange('selection'); } },
     demolishSelected() { if (!selected) return; if (!confirmDemo) { confirmDemo = true; onChange('selection'); } else demolish(selected); },
-    buildType(type) { if (tool.kind === 'build' && tool.type === type) return setTool({ kind: 'select' }); select(0); setTool({ kind: 'build', type }); },
+    buildType(type) { if (tool.kind === 'build' && tool.type === type && !tool.blueprint) return setTool({ kind: 'select' }); select(0); setTool({ kind: 'build', type }); },
+    /** Arms the build tool with a saved design ({ id, version? }; the latest version when none is given). */
+    buildBlueprint(ref) {
+      const bp = getBlueprint(snap().state, ref); if (!bp) return false;
+      if (tool.kind === 'build' && tool.blueprint?.id === bp.id && tool.blueprint.version === bp.version) { setTool({ kind: 'select' }); return true; }
+      select(0); setTool({ kind: 'build', type: bp.baseType, blueprint: { id: bp.id, version: bp.version } }); return true;
+    },
   };
 }

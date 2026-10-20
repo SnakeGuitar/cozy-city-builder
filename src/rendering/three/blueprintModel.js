@@ -90,6 +90,15 @@ export function blueprintParts(bp) {
   k.root.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
   return { root: k.root, parts };
 }
+/** One part drawn alone in its own frame (editor: parts are rebuilt only when their look changes). */
+export function partModel(part, seed = 1) {
+  const k = Kit(seed + part.id * 7919), g = k.g(null);
+  (DRAW[part.module] || DRAW.body)(k, g, part.size, part.color, part.variant || 0);
+  k.root.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+  return k.root;
+}
+/** What decides a part's look (not its pose): parts with the same signature share nothing but can be reused. */
+export const partSignature = p => `${p.module}|${p.size.w}|${p.size.h}|${p.size.d}|${p.color}|${p.variant || 0}`;
 /** Releases an editor view's geometry (materials are shared from art.js and stay). */
 export function disposeParts(root) { root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
 export const blueprintCacheSize = () => protoCache.size;

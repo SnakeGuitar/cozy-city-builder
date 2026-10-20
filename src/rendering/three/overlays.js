@@ -5,6 +5,7 @@ import { DEFS, isRoadType } from '../../core/config/catalog.js';
 import { M, T } from './art.js';
 import { getProto } from './models/index.js';
 import { roadPreview, roadPlanPreview } from './roads.js';
+import { blueprintProto } from './blueprintModel.js';
 import { roadsOf, segmentPolyline, nodeRadius } from '../../core/domain/roads.js';
 import { HALF } from './coords.js';
 import { footprintOf, lotAabb } from '../../core/domain/space.js';
@@ -33,8 +34,8 @@ export function createOverlays(scene, ground = () => 0) {
   let ghost = null, ghostKey = '';
   const relations = new THREE.Group(); scene.add(relations);
 
-  function ghostOf(type, variant, tier = 1) {
-    const o = isRoadType(type) ? roadPreview(type, 1) : getProto(type, variant, tier).clone();
+  function ghostOf(type, variant, tier = 1, blueprint = null) {
+    const o = blueprint ? blueprintProto(blueprint).clone() : isRoadType(type) ? roadPreview(type, 1) : getProto(type, variant, tier).clone();
     o.traverse(c => { if (c.isMesh) { if (!ghostMats.has(c.material)) { const g = c.material.clone(); g.transparent = true; g.opacity = .62; ghostMats.set(c.material, g); } c.material = ghostMats.get(c.material); c.castShadow = false; } if (c.isLineSegments) c.material = ghostEdge; });
     return o;
   }
@@ -133,9 +134,10 @@ export function createOverlays(scene, ground = () => 0) {
       range.position.set((a.minX + a.maxX) / 2, ground(position.x, position.z) + .045, (a.minZ + a.maxZ) / 2); range.scale.set(w + 2 * r, 1, dd + 2 * r); range.visible = true;
     },
     hideRange() { range.visible = false; },
-    ghost(type, variant, position, rotation, ok, time, tier = 1) {
-      const key = type + ':' + variant + ':' + tier;
-      if (ghostKey !== key) { dropGhost(); ghost = ghostOf(type, variant, tier); ghostKey = key; scene.add(ghost); }
+    /** The building being placed, see-through; `blueprint` (a saved version) draws a custom building instead. */
+    ghost(type, variant, position, rotation, ok, time, tier = 1, blueprint = null) {
+      const key = blueprint ? `bp:${blueprint.id}@${blueprint.version}` : type + ':' + variant + ':' + tier;
+      if (ghostKey !== key) { dropGhost(); ghost = ghostOf(type, variant, tier, blueprint); ghostKey = key; scene.add(ghost); }
       ghost.visible = true;
       ghost.position.set(position.x, ground(position.x, position.z) + (ok ? .06 + Math.sin(time * 3.3) * .015 : .02), position.z); ghost.rotation.y = rotation;
     },

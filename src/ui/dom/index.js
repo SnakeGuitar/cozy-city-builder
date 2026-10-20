@@ -10,7 +10,7 @@ import { createWorldLabels } from './worldLabels.js';
 import { renderHud, renderLight } from './hud.js';
 import { renderCityPanel } from './cityPanel.js';
 import { renderGoals } from './goalsView.js';
-import { renderCatalog, affordKey } from './catalog.js';
+import { renderCatalog, affordKey, TABS } from './catalog.js';
 import { renderSelectionPanel, relationLinks } from './selectionPanel.js';
 import { createMascot } from './mascot/mascot.js';
 import { createPlaceBar } from './placeBar.js';
@@ -29,14 +29,15 @@ export function normalizeSettings(raw = {}, fallbackLang = 'es', reducedMotion =
 /** Per-game UI data (saved in that game's slot): catalogue tab and filters, "new" badges. The camera is saved next to it. */
 export function normalizeSlotUi(ui = {}) {
   return {
-    tab: CATS.includes(ui.tab) ? ui.tab : 'homes',
+    tab: TABS.includes(ui.tab) ? ui.tab : 'homes',
     filt: { fam: [...FAMS, 'all'].includes(ui.filt?.fam) ? ui.filt.fam : 'all', era: [...ERAS, 'all'].includes(ui.filt?.era) ? ui.filt.era : 'all' },
     newT: Array.isArray(ui.newT) ? ui.newT.filter(k => DEFS[k]) : [],
     place: normalizePlacement(ui.place),
   };
 }
 
-export function createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave }) {
+/** `bpThumb(blueprint)` pictures a saved design; `openEditor({ blueprintId? })` opens the building editor. */
+export function createDomUI({ app, view, interaction, camera, settings, slot, audio, thumbs, requestSave, bpThumb = null, openEditor = () => {} }) {
   const game = app.game;
   const labels = createWorldLabels(view);
   const mascot = createMascot(settings);
@@ -49,11 +50,12 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
 
   // ---------------------------------------------------------------- render helpers
   const hud = () => renderHud(snap(), settings, rules());
-  const catalog = () => renderCatalog(snap(), slot, game.unlocked(), thumbs, activeType());
+  const catalog = () => renderCatalog(snap(), slot, game.unlocked(), thumbs, interaction.tool.blueprint ? null : activeType(), { bpThumb, activeBlueprint: interaction.tool.kind === 'build' ? interaction.tool.blueprint?.id : null });
   const goals = () => renderGoals(snap(), justDone, performance.now(), rules().goalsEnabled);
   const panel = () => renderRoadPanel(snap(), interaction, game.roadHistory, rules()) || renderSelectionPanel(snap(), interaction.selected, interaction.confirmDemo, {
     close: () => interaction.select(0), move: () => interaction.startMove(interaction.selected), rotate: () => interaction.rotate(), demolish: () => interaction.demolishSelected(),
-    upgrade: open => { audio.click(); interaction.toggleUpgrade(open); }, confirmUpgrade: () => interaction.confirmUpgrade() }, interaction.upgradeOpen);
+    upgrade: open => { audio.click(); interaction.toggleUpgrade(open); }, confirmUpgrade: () => interaction.confirmUpgrade(),
+    editDesign: id => openEditor({ blueprintId: id }), remodel: (id, version) => { const r = game.dispatch({ type: CMD.Remodel, id, version }); if (!r.ok) toast(t(r.reason)); } }, interaction.upgradeOpen);
   function relations() {
     const s = snap(), id = interaction.selected, links = relationLinks(s, id);
     const anchor = b => view.topOf(b, DEFS[b.type].s > 1 ? -.2 : -.35);
@@ -78,7 +80,15 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
   $('tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (!b) return; slot.tab = b.dataset.cat; audio.click(); catalog(); requestSave(); });
   $('filters').addEventListener('click', e => { const b = e.target.closest('.fchip'); if (!b) return; if (b.dataset.fam) slot.filt.fam = b.dataset.fam; if (b.dataset.era) slot.filt.era = b.dataset.era; audio.click(); catalog(); requestSave(); });
   $('items').addEventListener('click', e => {
-    const it = e.target.closest('.item'); if (!it) return; audio.init(); const k = it.dataset.type;
+    const ed = e.target.closest('[data-editbp]'); if (ed) { audio.click(); openEditor({ blueprintId: ed.dataset.editbp }); return; }
+    const it = e.target.closest('.item'); if (!it) return; audio.init();
+    if (it.dataset.newbp) { audio.click(); openEditor({}); return; }
+    if (it.dataset.bp) {
+      const bp = snap().state.blueprints[it.dataset.bp]; if (!bp) return;
+      const v = bp.versions[bp.latest]; if (!game.unlocked().has(v.baseType)) { toast(`${ico('i-lock')} ${t('locked')} · ${t('n_' + v.baseType)}`); return; }
+      interaction.buildBlueprint({ id: bp.id }); audio.click(); return;
+    }
+    const k = it.dataset.type;
     if (!game.unlocked().has(k)) { const g = GOALS.find(g => g.unlock.includes(k)); toast(`${ico('i-lock')} ${t('locked')} · ${t('goals')}: ${g ? t(g.id) : ''}`); return; }
     if (DEFS[k].unique) { const b = Object.values(snap().state.buildings).find(b => b.type === k); if (b) { const c = view.centerOf(b); camera.focus(c.x, c.z); interaction.setTool({ kind: 'select' }); interaction.select(b.id); return; } }
     if (slot.newT.includes(k)) { slot.newT = slot.newT.filter(x => x !== k); requestSave(); }
@@ -107,6 +117,8 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
       case 'building_removed': structural = true; audio.remove(); if (e.refund) labels.floater(view.topOf({ type: e.buildingType, position: e.position }, -.45), `${t('refunded', { n: e.refund })} ${ico('i-coin', '')}`, '', 1.4); income.delete(e.id); break;
       case 'building_moved': structural = true; audio.place(); break;
       case 'building_rotated': structural = true; audio.click(); break;
+      case 'building_remodeled': structural = true; audio.upgrade(); toast(`${ico('i-up')} ${t('ed_remodeled', { n: e.blueprint.version })}`); break;
+      case 'blueprint_saved': case 'blueprint_deleted': catalog(); panel(); requestSave(); break;
       case 'building_upgraded': { structural = true; audio.upgrade(); const b = state.buildings[e.id]; if (b) labels.floater(view.topOf(b, .3), `${'★'.repeat(e.toTier)} ${t('tierN', { n: e.toTier, m: DEFS[e.buildingType].tiers.length })}`, 'well', 2.2); toast(`${ico('i-up')} ${t('upgraded', { b: t('n_' + e.buildingType), n: e.toTier })}`); break; }
       case 'clock_changed': case 'day_changed': hud(); break;
       case 'income_earned': { const p = income.get(e.id) || { amount: 0, ticks: 3 + Math.random() * 4 }; p.amount += e.amount; income.set(e.id, p); break; }
@@ -116,7 +128,7 @@ export function createDomUI({ app, view, interaction, camera, settings, slot, au
       case 'types_unlocked': slot.newT.push(...e.types.filter(x => !slot.newT.includes(x))); slot.tab = DEFS[e.types[0]].cat; catalog(); break;
       case 'mascot_message_requested': mascot.show(e); break;
       case 'tutorial_step_completed': requestSave(); break;
-      case 'command_rejected': if (e.reason === 'cafeHeart') toast(t('cafeHeart')); else if (e.reason === 'notEnough') $('tip').animate([{ opacity: .4 }, { opacity: 1 }], { duration: 250 }); break;
+      case 'command_rejected': if (e.reason === 'cafeHeart') toast(t('cafeHeart')); else if (['missingBlueprint', 'invalidBlueprint', 'inUse', 'baseTypeChanged'].includes(e.reason)) toast(t(e.reason)); else if (e.reason === 'notEnough') $('tip').animate([{ opacity: .4 }, { opacity: 1 }], { duration: 250 }); break;
       case 'state_replaced': income.clear(); justDone.clear(); mascot.clear(); interaction.select(0); interaction.setTool({ kind: 'select' }); $('city').hidden = true; renderAll(); break;
       case 'tick': tickHappened = true; break;
     }

@@ -129,6 +129,33 @@ export function resolveParts(bp) {
   for (const p of bp.parts) solve(p);
   return out;
 }
+const r4 = v => Math.round(v * 1e4) / 1e4 + 0;
+/**
+ * The inverse of resolveParts for one part: the offset and rotation that put part `id` at lot-frame pose
+ * { x, y, z, ry } on its current anchor (what a move or turn gizmo produces). Rounded to 0.1 mm.
+ */
+export function offsetForPose(bp, id, pose, resolved = resolveParts(bp)) {
+  const p = bp.parts.find(q => q.id === id); if (!p) return null;
+  const out = (x, y, z, ry) => ({ offset: { x: r4(x), y: r4(y), z: r4(z) }, rotation: normAngle(r4(ry)) });
+  if (p.anchor === 'ground' || p.parent === null) return out(pose.x, pose.y, pose.z, pose.ry);
+  const P = resolved.get(p.parent); if (!P) return null;
+  if (p.anchor === 'top') { const o = rot(-P.ry, pose.x - P.x, pose.z - P.z); return out(o.x, pose.y - (P.y + P.h), o.z, pose.ry - P.ry); }
+  const fa = P.ry + FACE_ANGLE[p.anchor], half = (p.anchor === 'front' || p.anchor === 'back' ? P.d : P.w) / 2, o = rot(-fa, pose.x - P.x, pose.z - P.z);
+  return out(o.x, pose.y - P.y, o.z - half - p.size.d / 2, pose.ry - fa);
+}
+/** Ids of a part and every part hanging from it (depth first, the part first). */
+export function partSubtree(bp, id) {
+  const out = [], walk = i => { out.push(i); for (const p of bp.parts) if (p.parent === i) walk(p.id); };
+  if (bp.parts.some(p => p.id === id)) walk(id);
+  return out;
+}
+/** Anchors a module may use on a given parent part (null: the lot). */
+export function anchorsFor(module, parentId) {
+  const m = MODULES[module]; if (!m) return [];
+  if (parentId === null || parentId === undefined) return m.attach.includes('ground') ? ['ground'] : [];
+  return [...(m.attach.includes('top') ? ['top'] : []), ...(m.attach.includes('face') ? FACES : [])];
+}
+
 /** XZ corners of a resolved part's box. */
 export function partCorners(r) {
   return [[1, 1], [-1, 1], [-1, -1], [1, -1]].map(([i, j]) => { const o = rot(r.ry, i * r.w / 2, j * r.d / 2); return { x: r.x + o.x, z: r.z + o.z }; });
